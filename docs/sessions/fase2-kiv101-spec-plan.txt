@@ -1,0 +1,1654 @@
+ ▐▛███▛█   Claude Code v2.1.325
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~\proyectos\kivora-pipeline
+
+  Fable 5.2 is here for your longest and toughest coding tasks, and is included in your plan until November 16. It draws down usage faster than Opus 5.5. Switch with /model.
+  1 more notice hidden
+
+> Empezamos la fase 2 de assignment.md: especificar y planificar el ticket      
+  docs/tickets/KIV-101.md. En esta fase no se modifica código (kivora/, sql/,   
+  tests/).                                                                      
+                                                                                
+  Antes de escribir la especificación quiero detectar las ambigüedades. Lee     
+  KIV-101.md, assignment.md (fase 2 y secciones 3 y 8), docs/sources.md,        
+  docs/data-contracts/daily_sales.md, docs/analysis.md y CLAUDE.md, y analiza   
+  todos los datos de data/inbox/ (2026-09-01 a 2026-09-07), incluidos los       
+  refunds.json.                                                                 
+                                                                                
+  Dame:                                                                         
+  1. Un inventario de los problemas de calidad que hay de verdad en los datos,  
+  cada uno con un caso concreto (refund_id u order_id, customer_id, día,        
+  importe y moneda) y el comando que lo demuestra. Cubre al menos: pedidos      
+  duplicados y con varias versiones, pedidos cancelados, pedidos sin pago       
+  capturado, pedidos con varios pagos, clientes sin país o que cambian,         
+  devoluciones duplicadas, devoluciones sin pedido, devoluciones parciales,     
+  varias devoluciones por pedido, devoluciones que superan el importe del       
+  pedido, devoluciones de pedidos que no son venta, monedas y devoluciones      
+  cerca de la medianoche de Madrid.                                             
+  2. Una lista numerada de ambigüedades de KIV-101 que haya que decidir (por    
+  ejemplo: qué cuenta como pedido, a qué día se atribuye una devolución y en    
+  qué zona horaria, qué es last_purchase_date, qué va a rejected.csv y con qué  
+  reason, qué hacer cuando lo devuelto supera lo comprado, con qué granularidad 
+  se aplican los controles de calidad, redondeo y moneda). Para cada una: las   
+  opciones, la consecuencia de cada opción con un ejemplo de los datos y tu     
+  recomendación. No decidas tú: las decisiones las tomo yo.                     
+  3. Recuerda que el pipeline se ejecutará con datos que no conocemos: las      
+  reglas tienen que ser generales, no ajustadas a estos casos.                  
+                                                                                
+  No escribas ningún archivo todavía.                                           
+
+  Read 2 files, listed 2 directories, ran 1 shell command (ctrl+o to expand)
+
+● Ahora un análisis completo de los datos con un script (solo lectura, por
+  stdin).
+
+  Ran 6 shell commands (ctrl+o to expand)
+
+● Ya he terminado de analizar los datos. Te presento el inventario y las
+  ambigüedades. No he escrito ningún archivo: todo se ha hecho con consultas de
+  solo lectura.
+
+  Las cifras en EUR usan fx_rates.csv (GBP 1.17, USD 0.92) y se redondean por
+  línea con medio hacia arriba. Los días están en Europe/Madrid. Los comandos
+  son para Git Bash y se lanzan desde la raíz del repositorio.
+
+  1. Problemas de calidad que hay en los datos (09-01 a 09-07)
+
+  Cifras generales: 163 filas de pedidos, que son 158 order_id distintos. De
+  ellos, 156 son ventas según el contrato de daily_sales, con un bruto de
+  18490.74 EUR. Hay 168 pagos (9 failed), 32 clientes, y 32 devoluciones con 31
+  refund_id distintos.
+
+  Pedidos
+
+  Problema: Duplicado exacto en el mismo fichero
+  Caso concreto: K-10059, C009, 09-01, 45.90 EUR (2 filas iguales). También
+    K-10156, C017, 09-06, 23.10 EUR
+  Comando: grep -E '^K-(10059|10156),' data/inbox/*/orders.csv
+  ────────────────────────────────────────
+  Problema: Duplicado exacto reenviado otro día
+  Caso concreto: K-10060, C021, 67.25 GBP: aparece en 09-02 y en 09-03 con el
+    mismo updated_at. Además tiene la devolución R-1017, así que un join sin
+    deduplicar contaría esa devolución dos veces
+  Comando: grep '^K-10060,' data/inbox/*/orders.csv
+  ────────────────────────────────────────
+  Problema: Varias versiones: cancelado después
+  Caso concreto: K-10149, C014, 75.00 EUR: confirmed el 09-04 y cancelled el
+    09-05 (updated_at 2026-09-05T10:03:00Z). Tiene un pago captured (P-30159).
+  Es
+     el único cancelado
+  Comando: grep '^K-10149,' data/inbox/*/orders.csv
+  ────────────────────────────────────────
+  Problema: Varias versiones: cambia el importe
+  Caso concreto: K-10151, C010, EUR: 64.00 el 09-04 y 58.50 el 09-05. El pago
+    capturado P-30161 sigue siendo de 64.00, más que el total
+  Comando: grep -E 'K-10151,' data/inbox/*/orders.csv data/inbox/*/payments.csv
+  ────────────────────────────────────────
+  Problema: Sin pago capturado
+  Caso concreto: K-10062, C024, 09-02, 99.00 EUR: dos pagos failed (P-30066 y
+    P-30067)
+  Comando: grep ',K-10062,' data/inbox/*/payments.csv
+  ────────────────────────────────────────
+  Problema: Varios pagos, uno fallido y otro capturado
+  Caso concreto: 7 pedidos, por ejemplo K-10008, C005, 126.37 EUR (P-30008
+  failed
+    y P-30009 captured)
+  Comando: grep ',K-10008,' data/inbox/*/payments.csv
+  ────────────────────────────────────────
+  Problema: Varios pagos capturados (pago dividido)
+  Caso concreto: K-10145, C018, 09-04, 210.00 GBP = 84.00 + 126.00. K-10146,
+    C006, 09-06, 134.50 EUR = 53.80 + 80.70
+  Comando: grep -E ',K-1014[56],' data/inbox/*/payments.csv
+  ────────────────────────────────────────
+  Problema: Monedas
+  Caso concreto: De 163 filas de pedidos: EUR 129, GBP 21, USD 13. Todas están
+  en
+    fx_rates.csv
+  Comando: cut -d, -f6 data/inbox/*/orders.csv | sort | uniq -c
+  ────────────────────────────────────────
+  Problema: Cambio de día en Madrid
+  Caso concreto: 6 pedidos de después de las 22:00 UTC. Por ejemplo, K-10143
+    (C002, 2026-09-04T22:30:35Z, 188.26 EUR), que en Madrid es del 09-05, y
+    K-10144 (C027, 2026-09-06T23:50:14Z, 94.09 EUR), que es del 09-07. Los otros
+
+    son K-10053, K-10054, K-10055 y K-10056
+  Comando: grep -E 'T2[23]:' data/inbox/*/orders.csv
+
+  Clientes
+
+  Problema: Sin país
+  Caso concreto: C007, C019 (09-01) y C032 (llega el 09-04). Tienen 10 ventas,
+    por ejemplo K-10081 (C032, 09-04, 139.44 EUR) y K-10009 (C007, 166.04 EUR,
+    con la devolución R-1021)
+  Comando: grep -E '^C0(07|19|32),' data/inbox/*/customers.csv
+  ────────────────────────────────────────
+  Problema: Cliente reenviado o modificado
+  Caso concreto: C005 llega el 09-01 y el 09-02 idéntico, y el 09-05 con otro
+    nombre ("Marcos Vidal Ruiz"). Ningún cliente cambia de país en  estos datos,
+
+    pero la regla tiene que estar decidida
+  Comando: grep '^C005,' data/inbox/*/customers.csv
+
+  No hay pedidos sin cliente, pagos sin pedido ni payment_id repetidos.
+
+  Devoluciones
+
+  Problema: Devolución duplicada
+  Caso concreto: R-1006, K-10157, C028, 12.0 EUR: viene en el fichero del 09-05
+  y
+    otra vez en el del 09-06, idéntica (refunded_at 2026-09-05T16:20:00Z). El
+  día
+     del fichero no coincide con el de la devolución
+  Comando: grep -n '"R-1006"' data/inbox/*/refunds.json
+  ────────────────────────────────────────
+  Problema: Sin pedido
+  Caso concreto: R-1003, pedido K-19999 (no existe), 09-05, 25.0 EUR
+  Comando: grep -A1 '"R-1003"' data/inbox/*/refunds.json; grep -c 'K-19999' 
+    data/inbox/*/orders.csv
+  ────────────────────────────────────────
+  Problema: Parciales
+  Caso concreto: 28 de las 31. Por ejemplo, R-1001: K-10068, C011, 20.0 de 89.90
+
+    EUR
+  Comando: grep -A4 '"R-1001"' data/inbox/2026-09-04/refunds.json
+  ────────────────────────────────────────
+  Problema: Totales
+  Caso concreto: R-1011: K-10153, C025, 36.4 GBP de 36.40 GBP
+  Comando: grep -A4 '"R-1011"' data/inbox/2026-09-07/refunds.json
+  ────────────────────────────────────────
+  Problema: Varias por pedido
+  Caso concreto: K-10068 (C011): R-1001 (20.0) + R-1007 (15.5) = 35.5 de 89.90
+    EUR
+  Comando: grep -B1 '"K-10068"' data/inbox/*/refunds.json
+  ────────────────────────────────────────
+  Problema: Superan el importe del pedido
+  Caso concreto: K-10148, C022, 100.00 USD (92.00 EUR): R-1004 (09-05, 60.0 USD)
+
+    + R-1009 (09-07, 50.0 USD) = 110 USD (101.20 EUR). La que hace pasar el
+    límite es R-1009
+  Comando: grep -B1 -A2 '"K-10148"' data/inbox/*/refunds.json; grep '^K-10148,' 
+    data/inbox/*/orders.csv
+  ────────────────────────────────────────
+  Problema: De un pedido que no es venta
+  Caso concreto: R-1005: K-10149 (cancelado), C014, 09-05, 75.0 EUR, que es el
+    total. Se cobró y se devolvió
+  Comando: grep -A3 '"K-10149"' data/inbox/*/refunds.json
+  ────────────────────────────────────────
+  Problema: Monedas
+  Caso concreto: 25 en EUR, 4 en GBP y 3 en USD. Siempre coinciden con la moneda
+
+    del pedido. Por ejemplo, R-1017: 33.62 GBP, que son 39.34 EUR
+  Comando: grep -h '"currency"' data/inbox/*/refunds.json | sort | uniq -c
+  ────────────────────────────────────────
+  Problema: Cerca de la medianoche de Madrid
+  Caso concreto: R-1008: K-10152, C020, 20.0 EUR, 2026-09-06T22:40:00Z. En
+  Madrid
+    es el 07-09 a las 00:40, aunque viene en el fichero del 09-06
+  Comando: uv run python -c "from datetime import datetime as d;from zoneinfo 
+    import ZoneInfo as 
+    Z;print(d.fromisoformat('2026-09-06T22:40:00+00:00').astimezone(Z('Europe/Ma
+  drid')))"
+  ────────────────────────────────────────
+  Problema: Devolución de una compra de otro día
+  Caso concreto: R-1014: K-10001, C020, comprado el 09-01 y devuelto el 09-04
+    (21.83 EUR). Ese día C020 no compra nada
+  Comando: grep -A1 '"R-1014"' data/inbox/*/refunds.json
+
+  No aparecen en la muestra, pero son del mismo tipo y pueden llegar con los 
+  datos que no conocemos:
+  - una devolución en otra moneda que la del pedido, o en una moneda que no está
+    en fx_rates.csv;
+  - importes de 0 o negativos;
+  - campos vacíos o JSON mal formado;
+  - refunded_at anterior al pedido;
+  - un mismo refund_id con contenido distinto;
+  - un cliente que cambia de país;
+  - un pedido cuyo cliente no está en customers.csv.
+
+  2. Ambigüedades de KIV-101 que tienes que decidir
+
+  A1. Qué cuenta como pedido (orders_count y gross_amount)
+  - (a) Una venta según el contrato de daily_sales: la última versión, no
+    cancelada y con al menos un pago captured. Entonces K-10062 (C024, 09-02) y
+    K-10149 (C014, 09-04) no cuentan.
+  - (b) Todo pedido recibido: C024 tendría 99.00 EUR más de bruto que no se han
+    cobrado.
+  - Recomiendo (a): es la definición que ya existe y la que cuadra con lo
+    cobrado.
+
+  A2. Importe bruto: total_amount de la última versión o la suma de los pagos 
+  capturados
+  - K-10151 da 58.50 o 64.00. En K-10145 y K-10146 las dos opciones coinciden.
+  - Recomiendo total_amount de la última versión, y que un control de calidad
+    avise cuando lo capturado no coincide con el total (aquí, K-10151).
+
+  A3. Día de una compra (metric_date)
+  - Puede ser el día en Madrid según created_at o el día UTC. K-10144 cae en el
+    09-07 o en el 09-06.
+  - Recomiendo Madrid, igual que el contrato de daily_sales. Hay que usar
+    zoneinfo y no un +2 fijo, porque en invierno la diferencia es +1.
+
+  A4. A qué día se atribuye una devolución, y en qué zona horaria
+  - (a) Al día de la devolución en Madrid. Aparecen 11 filas solo con
+    devoluciones y 12 filas con neto negativo. Por ejemplo, C020 el 09-04 tiene
+    bruto 0, devuelto 21.83 y neto −21.83. Los días ya cerrados no cambian.
+  - (b) Al día de la compra. No sale ningún neto negativo, pero el 09-01 de C020
+    cambia cuando llega la devolución tres días después, y una cifra ya
+    publicada se reescribe.
+  - (c) Al día del fichero. R-1006 contaría el 09-06 y R-1008 el 09-06, cuando
+    en Madrid ya es el 09-07. Se desaconseja.
+  - Recomiendo (a), en Madrid: contabilidad registra el movimiento el día en que
+    ocurre. Con estos datos, los totales son los mismos en (a) y (b).
+
+  A5. Filas sin compras
+  - Si se elige A4(a), ¿se crea una fila con orders_count=0 y gross_amount=0.00?
+  - Recomiendo que sí. Si no se crea, se pierden 1310.19 EUR de devoluciones que
+    no tienen fila. No se crean filas para los días sin ninguna actividad.
+
+  A6. last_purchase_date
+  - (a) La última venta en o antes de metric_date: para C020 el 09-04 sería el
+    09-01.
+  - (b) La última venta de todo el histórico: sería el 09-06, una fecha futura
+    respecto a la fila.
+  - (c) Solo el día de la fila, vacía si ese día no compra.
+  - ¿Cuentan los cancelados o los no pagados? Por ejemplo, K-10149.
+  - Recomiendo (a), contando solo ventas, en Madrid. Así es estable y no mira al
+    futuro. Si el cliente aún no ha comprado nunca, la fecha queda vacía.
+
+  A7. refunds_count
+  - ¿Cuentan las devoluciones rechazadas? ¿Y la que supera el importe (A9)?
+  - Recomiendo contar solo las devoluciones aceptadas, por refund_id distinto,
+    en el día que les atribuya A4.
+
+  A8. Devoluciones de pedidos que no son venta (R-1005 de K-10149, cancelado)
+  - (a) Rechazarla con reason=order_not_sale. El neto de C014 queda en 0, que es
+    coherente porque tampoco cuenta el bruto.
+  - (b) Contarla: C014 tendría −75.00 el 09-05 sin compra que lo compense.
+  - Recomiendo (a). La misma regla vale para las devoluciones de pedidos sin
+    pago capturado.
+
+  A9. Lo devuelto supera lo comprado (K-10148: 110 USD de 100 USD)
+  - (a) Rechazar entera la devolución que pasa el límite (R-1009,
+    refund_exceeds_order), procesándolas en orden de refunded_at y, si empatan,
+    de refund_id. Lo devuelto en total sería 1264.19 EUR.
+  - (b) Aceptar solo hasta el límite: 40 USD de R-1009. Total 1300.99 EUR, pero
+    los importes ya no coinciden con lo que dice la fuente.
+  - (c) Aceptarlo todo y que lo marque solo el control de calidad. Total 1310.19
+    EUR.
+  - (d) Rechazar todas las devoluciones de ese pedido.
+  - La comparación se puede hacer en la moneda del pedido o en EUR.
+  - Recomiendo (a), comparando en la moneda del pedido para que el redondeo no
+    influya. No se parte ningún registro y queda trazado en rejected.csv.
+
+  A10. Devoluciones duplicadas
+  - Con el mismo refund_id y el mismo contenido (R-1006), ¿se usa una y se
+    ignora la otra, o la copia va a rejected.csv como duplicate?
+  - Con el mismo refund_id y contenido distinto (no ocurre aquí), ¿gana la
+    última recibida o se rechazan las dos por conflicto?
+  - Si tienen distinto refund_id e igual contenido, no se puede saber si son la
+    misma, así que se cuentan las dos.
+  - Recomiendo:
+    - Para las copias exactas, usar una y anotar la otra con duplicate_refund,
+      porque Finanzas quiere saber qué se descartó.
+    - Para el conflicto, rechazar con conflicting_duplicate.
+
+  A11. Devoluciones sin pedido (R-1003)
+  - Se puede rechazar con order_not_found.
+  - Si el pedido llega en una entrega posterior, la devolución se acepta en esa
+    ejecución, porque todo se recalcula desde inbox/. ¿Te parece aceptable?
+  - Recomiendo rechazar y aceptar ese comportamiento.
+
+  A12. Moneda de la devolución
+  - Se convierte con su propia moneda. Si no coincide con la del pedido o no
+    está en la tabla, ¿se rechaza o se convierte igualmente?
+  - Recomiendo rechazar con currency_mismatch o unknown_currency. Con monedas
+    distintas no se puede comparar lo devuelto con lo comprado (A9).
+
+  A13. Redondeo
+  - ¿Se redondea cada línea y luego se suma, o se redondea al final? C004 el
+    09-02 da 691.50 o 691.52, y C022 el 09-04 da 325.17 o 325.16.
+  - ¿Medio hacia arriba o al par? ¿Decimal o float?
+  - Recomiendo: Decimal, redondear cada pedido y cada devolución a dos decimales
+    con medio hacia arriba, como en daily_sales, y calcular net = gross − 
+    refunded con los valores ya redondeados. Siempre se escriben dos decimales.
+
+  A14. País de la fila
+  - (a) El último conocido del cliente.
+  - (b) El que tenía en ese momento (SCD).
+  - El vacío pasa a UNKNOWN (C007, C019, C032). Si el cliente no está en
+    customers.csv, ¿se le pone UNKNOWN o se rechaza el pedido?
+  - ¿Hay que normalizar mayúsculas y espacios?
+  - Recomiendo (a), UNKNOWN para el vacío y para el cliente que no existe (sin
+    rechazar, para no perder la venta), y normalizar con strip y mayúsculas. El
+    grano es cliente y día, así que un cambio de país nunca duplica la fila.
+
+  A15. Qué va a rejected.csv
+  - El ticket pide "pedido o devolución que no se ha podido usar". ¿Entran los
+    cancelados y los no pagados, que son pedidos que no son venta? ¿Y las copias
+    y versiones sustituidas, que sí se usan una vez?
+  - Si un registro tiene varios motivos, ¿una fila por motivo o una sola con el
+    motivo prioritario?
+  - Hay que fijar los valores de source (orders o refunds) y de reason.
+  - Recomiendo:
+    - Un vocabulario cerrado: not_sale_cancelled, not_sale_unpaid,
+      unknown_currency, invalid_record (orders) y order_not_found,
+      order_not_sale, refund_exceeds_order, duplicate_refund, currency_mismatch,
+      unknown_currency, invalid_record (refunds).
+    - Una fila por registro con el primer motivo, según un orden de prioridad
+      fijo.
+    - Columnas extra day y detail.
+    - Las copias exactas y las versiones antiguas de pedidos no van, porque son
+      el comportamiento normal descrito en sources.md.
+    - Con estos datos saldrían 6 filas: K-10149, K-10062, R-1003, R-1005, R-1009
+      y la copia de R-1006.
+
+  A16. Controles de calidad: cuáles, a qué nivel y qué cuenta failed_records
+  - "Lo devuelto no supera lo comprado" por fila cliente-día falla en 12 filas
+    con A4(a) sin que haya ningún error real, y no detecta K-10148, porque C022
+    compró ese día otros pedidos. Por pedido sí lo detecta.
+  - ¿Un control que falla cambia el código de salida?
+  - Recomiendo:
+    - Comprobar el exceso por pedido.
+    - net = gross − refunded por fila.
+    - Que no haya claves (metric_date, customer_id) repetidas.
+    - Que cada order_id cuente una sola vez.
+    - Que lo capturado coincida con el total (K-10151).
+    - Que la suma del bruto coincida con las ventas.
+    - failed_records cuenta las entidades de ese nivel y la salida es siempre 0,
+      porque el ticket exige terminar con 0.
+
+  A17. Determinismo
+  - Hay que fijar el orden de las filas: metric_date, customer_id en las
+    métricas y source, record_id en los rechazados.
+  - Los controles van en un orden fijo, en JSON sin marcas de tiempo, con
+    codificación y finales de línea fijos.
+  - Recomiendo lo indicado, con newline='' y UTF-8.
+
+  A18. Alcance respecto a daily_sales
+  - ¿Se corrigen también los defectos de daily_sales que recoge
+    docs/analysis.md, o solo se construye la tabla nueva compartiendo la
+    definición de venta?
+  - Si comparten definición, ¿la suma de gross_amount de las dos tablas tiene
+    que coincidir (18490.74)?
+  - Recomiendo una capa común de ventas que se use en las dos tablas, y dejar la
+    corrección de daily_sales fuera de alcance o en una especificación aparte.
+
+  A19. Registros mal formados
+  - Puede faltar refunds.json (es normal), venir vacío ([]) o con JSON roto.
+    También puede haber campos vacíos o importes ≤ 0 o que no son números.
+  - Recomiendo:
+    - Si falta el fichero o viene vacío, cero devoluciones.
+    - Los registros inválidos van a rejected.csv con invalid_record.
+    - Con el JSON roto el pipeline falla con un error claro, porque inventar
+      datos es peor.
+
+  A20. Días fuera del rango del inbox
+  - Una compra del 09-07 a las 23:30 UTC cae en el 09-08 en Madrid, un día que
+    no tiene carpeta. ¿Se genera esa fila?
+  - Recomiendo que sí: la fecha sale de los datos, no de la carpeta.
+
+  3. Reglas generales, no ajustadas a la muestra
+
+  Ninguna recomendación depende de un id, una fecha o una moneda concretos:
+  - la deduplicación va por clave más updated_at, o por refund_id;
+  - el límite de lo devuelto se calcula con la suma acumulada por pedido;
+  - la zona horaria se calcula con zoneinfo;
+  - las monedas salen de la tabla y cualquier otra se rechaza;
+  - y los motivos de rechazo son una lista cerrada.
+
+  Los casos del final de la sección 1, los que no aparecen en la muestra,
+  deberían tener su requisito y su test con datos sintéticos. Así cubrimos lo
+  que traerán los datos que no conocemos.
+
+  Cuando decidas cada punto, lo paso a la sección Aclaraciones de
+  docs/specs/KIV-101/spec.md, con escenarios basados en los casos de arriba.
+
+✻ Brewed for 3m 42s · done 18:27
+
+※ recap: Estamos en la fase 2 de KIV-101, especificar las devoluciones y las métricas por cliente, y ya tienes el inventario de problemas de los datos y 20 ambigüedades con mi recomendación. Lo siguiente es que tú decidas cada una para escribir la especificación. (disable recaps in /config)
+
+> ───────────────────────────────────────────────────────────────────────────── 
+  ───────────────────────────                                                   
+  > día, este importe), calculados con un comando que me enseñes, cada uno      
+  ligado a sus requisitos.                                                      
+    Cubre al menos: duplicados, versiones (K-10149, K-10151), país vacío,       
+  devolución parcial, varias                                                    
+    devoluciones por pedido, devolución sin pedido, devolución que supera el    
+  pedido, devolución                                                            
+    duplicada, devolución de pedido cancelado, cambio de día en Madrid, fila    
+  solo con devoluciones,                                                        
+    varios pagos capturados y conversión de moneda.                             
+  - Una sección "Aclaraciones" con cada ambigüedad A1-A20: opciones, decisión,  
+  motivo y quién decidió                                                        
+      (yo, con tu propuesta).                                                   
+  - Escenarios con datos                                                        
+
+● Tu mensaje ha llegado cortado. Empieza a mitad de frase ("…día, este importe),
+  calculados con un comando…") y se interrumpe en "Escenarios con datos". Antes
+  de escribir docs/specs/KIV-101/spec.md necesito dos cosas:
+
+  1. El principio y el final del mensaje. Por lo que se lee, la especificación
+     lleva escenarios con datos reales, cada uno calculado con un comando y
+     ligado a sus requisitos, y la sección "Aclaraciones" A1–A20. No sé qué
+     pedías antes de eso (¿objetivo, fuera de alcance, requisitos numerados,
+     formato de los escenarios?) ni lo que venía después de "Escenarios con
+     datos". ¿Me lo vuelves a pegar completo?
+  2. Tus decisiones de A1–A20. En "Aclaraciones" pides poner "quién decidió (yo,
+     con tu propuesta)". Pero antes me dijiste que las decisiones las tomas tú,
+     y todavía no me has dicho cuáles son. No voy a dar por aprobadas mis
+     recomendaciones sin que lo confirmes. Puedes responder de dos formas:
+     - "Adopto todas tus recomendaciones", o
+     - "Adopto todas salvo: A4 → (b), A9 → (c)…", con el motivo si quieres que
+       figure el tuyo.
+
+     Las que más cambian el resultado son estas:
+     - A4: a qué día se atribuye una devolución.
+     - A9: qué hacer cuando lo devuelto supera lo comprado.
+     - A15: qué va a rejected.csv.
+     - A16: con qué granularidad se aplican los controles.
+
+  En cuanto lo tenga, calculo las cifras de cada escenario con comandos que te
+  enseñaré y escribo la especificación. No tocaré kivora/, sql/ ni tests/.
+
+✻ Crunched for 26s · done 18:43
+
+> Adopto todas tus recomendaciones salvo estas precisiones:                     
+  D1 (A4): la devolución va al día de refunded_at en Europe/Madrid. Se aceptan  
+  netos negativos.                                                              
+  D2 (A9): opción (a). Se rechaza entera la devolución que hace superar el      
+  total del pedido, en orden de refunded_at y refund_id, comparando en la       
+  moneda del pedido.                                                            
+  D3 (A1, A8): venta = contrato de daily_sales. Las devoluciones de pedidos que 
+  no son venta se rechazan.                                                     
+  D4 (A10, A15): rejected.csv según tu propuesta. Las copias de pedidos y sus   
+  versiones antiguas no van.                                                    
+  D5 (A18): corregir daily_sales queda fuera de alcance; se documenta como      
+  defecto conocido.                                                             
+  A16: solo tres controles. (1) net = gross - refunded por fila; (2) lo         
+  devuelto no supera el total, por pedido; (3) sin claves (metric_date,         
+  customer_id) repetidas y cada order_id cuenta una vez. Salida 0 aunque falle  
+  un control.                                                                   
+  Aún no escribas nada; confirma que lo has entendido.                          
+
+● Entendido. No he escrito nada. Te resumo lo que voy a aplicar y lo que se
+  deduce de tus decisiones.
+
+  Decisiones
+  - D1 (A4): cada devolución cuenta el día de refunded_at en Europe/Madrid. Se
+    admiten netos negativos. Por ejemplo, R-1008 (2026-09-06T22:40Z) va al
+    09-07, y C020 queda el 09-04 con bruto 0.00, devuelto 21.83 y neto −21.83.
+  - D2 (A9): las devoluciones de cada pedido se procesan en orden de refunded_at
+    y, si empatan, de refund_id. Se rechaza entera la que hace superar el
+    total, comparando en la moneda del pedido. En K-10148 se acepta R-1004 (60
+    USD) y se rechaza R-1009 (50 USD) con refund_exceeds_order.
+  - D3 (A1, A8): una venta es lo que define el contrato de daily_sales: la
+    última versión, no cancelada y con al menos un pago captured. Una devolución
+    de un pedido que no es venta se rechaza con order_not_sale. Es el caso de
+    R-1005 (K-10149).
+  - D4 (A10, A15): rejected.csv lleva el vocabulario cerrado de motivos que
+    propuse y una fila por registro con el motivo prioritario. La copia de
+    R-1006 sí va, como duplicate_refund. Las copias exactas de pedidos y las
+    versiones antiguas no van.
+  - D5 (A18): corregir daily_sales queda fuera de alcance. Se documenta como
+    defecto conocido, enlazando a docs/analysis.md.
+  - A16: hay tres controles en quality_report.json y la salida es siempre 0:
+    a. net = gross − refunded en cada fila;
+    b. lo devuelto aceptado no supera el total, pedido a pedido;
+    c. no se repite ninguna clave (metric_date, customer_id) y cada order_id
+       cuenta una sola vez.
+  - El resto (A2, A3, A5–A7, A11–A14, A17, A19, A20): quedan mis recomendaciones
+    tal como las escribí.
+
+  Consecuencias que conviene que sepas
+  1. A2 se queda sin control. Propuse avisar cuando lo capturado no coincide con
+     el total del pedido, y no está entre los tres controles. K-10151 entrará
+     como 58.50 EUR sin ningún aviso, aunque se capturaron 64.00. Si no dices
+     otra cosa, lo dejo anotado en Aclaraciones como riesgo aceptado.
+  2. El control 2 pasará siempre con los datos de ejemplo. Con D2 nunca se
+     acepta un exceso, así que funciona como salvaguarda del propio pipeline.
+     K-10148 no aparecerá en quality_report.json y sí en rejected.csv. Lo
+     explicaré así en la especificación.
+  3. El control 3 tiene dos condiciones. Puedo hacer un solo control cuyo
+     failed_records sume las claves repetidas y los order_id contados más de una
+     vez, o dos entradas separadas en checks. Si no dices nada, haré una sola
+     entrada que sume las dos cosas, para respetar "solo tres controles".
+
+  Cifras esperadas con estas decisiones (de los cálculos de antes; las
+  recalcularé con comandos visibles al escribir los escenarios)
+  - Ventas: 156, con 18490.74 EUR de bruto.
+  - Devuelto aceptado: 1310.19 − 46.00 (R-1009) = 1264.19 EUR. El neto total es
+    17226.55 EUR.
+  - Filas cliente-día: 126. De ellas, 11 solo tienen devoluciones y 12 tienen
+    neto negativo.
+  - rejected.csv: 6 filas.
+    - K-10149: not_sale_cancelled
+    - K-10062: not_sale_unpaid
+    - R-1003: order_not_found
+    - R-1005: order_not_sale
+    - R-1009: refund_exceeds_order
+    - R-1006 (la copia): duplicate_refund
+
+  En Aclaraciones, cada decisión llevará "Decidido por: Ana, sobre la propuesta
+  del agente". Las cuatro que has precisado (D1, D2, A16 y el alcance de D5)
+  llevarán además tu motivo, si me lo das.
+
+  Dime si te valen las consecuencias 1 y 3 y te paso a escribir
+  docs/specs/KIV-101/spec.md.
+
+✻ Sautéed for 45s · done 18:45
+
+> Escribe docs/specs/KIV-101/spec.md, solo ese archivo y sin commit, con:       
+  - Objetivo y fuera de alcance.                                                
+  - Salidas: columnas de daily_customer_metrics.csv, rejected.csv (lista        
+  cerrada de reasons) y quality_report.json, con formatos, orden de filas y     
+  determinismo.                                                                 
+  - Requisitos numerados (R1, R2...), generales, válidos para datos             
+  desconocidos.                                                                 
+  - Escenarios de aceptación con cifras reales de data/inbox/, calculadas con   
+  un comando que me enseñes y ligadas a sus requisitos: duplicados, versiones   
+  (K-10149, K-10151), país vacío, devolución parcial, varias por pedido, sin    
+  pedido, que supera el pedido, duplicada, de pedido cancelado, cambio de día   
+  en Madrid, fila solo con devoluciones, varios pagos capturados y conversión   
+  de moneda.                                                                    
+  - Escenarios sintéticos: moneda desconocida, importe <= 0, campo vacío y      
+  cliente inexistente.                                                          
+  - Sección "Aclaraciones" A1-A20: opciones, decisión, motivo y quién decidió   
+  (yo, a partir de tu propuesta).                                               
+
+● No me has contestado a las consecuencias 1 y 3, así que aplico lo que te
+  propuse: A2 queda sin control (riesgo aceptado) y el control 3 es una sola
+  entrada. Antes de escribir la especificación calculo las cifras con un script
+  de referencia, que guardo en el scratchpad y no en el repositorio.
+
+  Made 1 scratchpad edit +97, searched for 1 pattern, ran 3 shell commands (ctrl+o to expand)
+
+● Las cifras de las cuatro devoluciones y pedidos sintéticos coinciden con lo
+  que había razonado. Paso a escribir la especificación.
+
+● Write(docs\specs\KIV-101\spec.md)
+  ⎿  Wrote 501 lines to docs\specs\KIV-101\spec.md
+      1 # KIV-101 · Especificación: devoluciones y métricas diarias por c
+        liente
+      2 
+      3 - **Ticket:** `docs/tickets/KIV-101.md`
+      4 - **Estado:** borrador para revisión (fase 2). No se ha modificad
+        o código.
+      5 - **Decisiones:** Ana, a partir de la propuesta del agente (secci
+        ón [Aclaraciones](#aclaraciones)).
+      6 - **Datos de referencia:** `data/inbox/2026-09-01` … `2026-09-07`
+         y `data/reference/fx_rates.csv`
+     … +495 lines (ctrl+o to expand)
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● He escrito docs/specs/KIV-101/spec.md. Es el único cambio en el repositorio
+  (git status: ?? docs/specs/), y no he hecho commit.
+
+  Qué contiene
+  - Objetivo y fuera de alcance. Fuera quedan corregir daily_sales, el cuadre de
+    lo cobrado con el total del pedido (A2, riesgo aceptado), la coherencia
+    temporal entre devolución y pedido, y KIV-102.
+  - Salidas (§3):
+    - Las columnas de daily_customer_metrics.csv y su orden de filas.
+    - rejected.csv con las columnas source, record_id, reason, inbox_day y
+      detail, y 12 motivos posibles con orden de prioridad.
+    - quality_report.json con sus tres controles y qué cuenta failed_records en
+      cada uno.
+    - Las reglas de formato y de determinismo.
+  - Requisitos R1–R18. Son generales: ninguno menciona un id, una fecha o una
+    moneda de la muestra.
+  - Escenarios reales E1–E19 (§5). Cada uno lleva un grep que muestra los
+    registros de origen, la fila esperada y los requisitos que comprueba. Cubren
+    todos los casos que pediste, más un pedido sin pago capturado, los totales
+    y el determinismo.
+  - Escenarios sintéticos S1–S8 (§6). Además de los cuatro que pediste, añadí un
+    mismo refund_id con contenido distinto, una devolución en otra moneda que
+    su pedido, un JSON roto y un día sin devoluciones. Así cada motivo de
+    rechazo tiene al menos un caso.
+  - Aclaraciones A1–A20. Cada una con opciones, decisión, motivo y "decidido
+    por: Ana, a partir de la propuesta del agente". En D1, D2, A16 y D5 se
+    indica que la precisión es tuya.
+  - Anexo A. El script de referencia que da las cifras, con la salida de
+    --summary.
+
+  Cómo se calcularon las cifras. Con uv run python -I ref_kiv101.py data/inbox 
+  data/reference --summary, y con claves fecha,cliente para sacar filas
+  concretas. Esto da 156 ventas, 18490.74 de bruto, 1264.19 devueltos, 17226.55
+  de neto, 126 filas y 6 rechazos. S1–S6 los ejecuté sobre carpetas temporales;
+  S7 y S8 no los he ejecutado.
+
+  Para que lo revises
+  1. Dos decisiones las tomé yo sin que me lo dijeras. Te las había propuesto,
+     pero no me contestaste:
+     - A2 queda sin control, como riesgo aceptado.
+     - El control 3 es una sola entrada en el informe.
+  2. Detalles que fijé sin que estuvieran en las Aclaraciones:
+     - Si dos versiones de un pedido tienen el mismo updated_at, gana la de la
+       carpeta posterior.
+     - De un mismo refund_id se usa la primera aparición.
+     - El nombre de los tres controles.
+     - Las columnas inbox_day y detail.
+
+     Si alguno no te convence, lo cambio.
+  3. El script de referencia solo está en el scratchpad, en
+     C:\Users\ana\AppData\Local\Temp\claude\302bc7333b3ccc75\6e6f0632-1ec6-46d3-
+     90d9-7405a337f0cd\scratchpad\ref_kiv101.py, y se puede borrar con cualquier
+     limpieza. Por eso está copiado en el Anexo A. Si quieres, lo guardamos
+     como fichero en docs/specs/KIV-101/ para que los escenarios se reproduzcan
+     con un solo comando y sirva de base a la tarea acceptance de la fase 4.
+
+✻ Cooked for 8m 5s · done 19:00
+
+> Confirmo las consecuencias 1 y 3 que propusiste: A2 sin control (riesgo       
+  aceptado) y el control 3 como una sola entrada. Guarda tu script de           
+  referencia en docs/specs/KIV-101/reference_calc.py, cita en spec.md el        
+  comando exacto para reproducir los escenarios (con uv run) y ejecútalo para   
+  comprobar que da las mismas cifras. No hagas commit.                          
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ahora actualizo la especificación: el comando, el anexo (que pasa a apuntar al
+  fichero en lugar de copiar el código) y las dos decisiones que has
+  confirmado.
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 15 lines, removed 6 lines
+      190  
+      191  ## 5. Escenarios de aceptación con los datos reales
+      192  
+      193 -**Cómo se han calculado.** Con el cálculo de referencia del [A
+          -nexo A](#anexo-a--cálculo-de-referencia),                     
+      194 -que aplica estos requisitos de forma independiente del pipelin
+          -e:                                                            
+      193 +**Cómo se han calculado.** Con el cálculo de referencia `docs/
+          +specs/KIV-101/reference_calc.py`                              
+      194 +([Anexo A](#anexo-a--cálculo-de-referencia)), que aplica estos
+          + requisitos de forma independiente del                        
+      195 +pipeline. Desde la raíz del repositorio:                      
+      196  
+      197  ```bash
+      197 -# resumen y rechazos                                          
+      198 -uv run python -I <ruta>/ref_kiv101.py data/inbox data/referenc
+          -e --summary                                                   
+      199 -# filas concretas: una o varias claves "metric_date,customer_i
+          -d"                                                            
+      200 -uv run python -I <ruta>/ref_kiv101.py data/inbox data/referenc
+          -e 2026-09-04,C014 2026-09-04,C010                             
+      198 +# totales y rechazos (E18)                                    
+      199 +uv run python -I docs/specs/KIV-101/reference_calc.py data/inb
+          +ox data/reference --summary                                   
+      200 +# todas las filas esperadas de los escenarios E1–E17          
+      201 +uv run python -I docs/specs/KIV-101/reference_calc.py data/inb
+          +ox data/reference \                                           
+      202 +  2026-09-01,C009 2026-09-02,C021 2026-09-04,C021 2026-09-04,C
+          +014 2026-09-04,C010 \                                         
+      203 +  2026-09-01,C007 2026-09-04,C032 2026-09-04,C011 2026-09-06,C
+          +011 2026-09-05,C022 \                                         
+      204 +  2026-09-07,C022 2026-09-05,C028 2026-09-04,C002 2026-09-05,C
+          +002 2026-09-07,C027 \                                         
+      205 +  2026-09-07,C020 2026-09-04,C020 2026-09-04,C018 2026-09-06,C
+          +006 2026-09-02,C024 \                                         
+      206 +  2026-09-04,C022 2026-09-03,C021 2026-09-05,C014             
+      207  ```
+      208  
+      209 +Las dos últimas claves (`2026-09-03,C021` y `2026-09-05,C014`)
+          + no deben aparecer en la salida                               
+      210 +(E2 y E11).                                                   
+      211 +                                                              
+      212  La columna **Evidencia en la entrada** es el `grep` (Git Bash,
+            desde la raíz) que muestra los
+      213  registros de origen. Las filas esperadas siguen el orden de co
+           lumnas de 3.1.
+      214  
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 3 lines, removed 2 lines
+      237  ## 6. Escenarios sintéticos
+      238  
+      239  Para casos que la muestra no trae. Se construyen en una carpet
+           a temporal **fuera del repositorio**;
+      240 -nunca en `data/inbox/`. Se han verificado con el cálculo de re
+          -ferencia                                                      
+      241 -(`uv run python -I <ruta>/ref_kiv101.py <tmp>/inbox data/refer
+          -ence --summary`).                                             
+      240 +nunca en `data/inbox/`. S1–S6 se han verificado con el cálculo
+          + de referencia                                                
+      241 +(`uv run python -I docs/specs/KIV-101/reference_calc.py <tmp>/
+          +inbox data/reference --summary` y                             
+      242 +sin `--summary` para las filas); S7 y S8 no se han ejecutado. 
+      243  
+      244  **Base S (un día, `2026-09-01`).** `customers.csv`: `C1,Client
+           e Uno,ES,2025-01-01`. Pedidos, todos
+      245  `confirmed` y con un pago `captured` por su importe:
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 2 lines, removed 1 line
+      286  
+      287  **A2. Bruto: `total_amount` de la última versión o suma de pag
+           os capturados.**
+      288  Difieren en K-10151 (58.50 frente a 64.00). **Decisión:** `tot
+           al_amount` de la última versión, sin
+      289 -control de cuadre con los pagos (riesgo aceptado: no entra ent
+          -re los tres controles de A16).                                
+      289 +control de cuadre con los pagos (riesgo aceptado: no entra ent
+          +re los tres controles de A16;                                 
+      290 +confirmado expresamente por Ana).                             
+      291  **Motivo:** es el importe del pedido vigente; el cuadre con co
+           bros es otro análisis. → R5, §2.
+      292  
+      293  **A3. Día de una compra.**
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 2 lines, removed 1 line
+      369  Opciones: qué controles y a qué nivel. "Lo devuelto no supera 
+           lo comprado" por fila cliente-día
+      370  fallaría en 12 filas sin error real (por A4) y no detectaría K
+           -10148. **Decisión:** exactamente tres
+      371  (§3.3): neto por fila, devuelto ≤ total por pedido y unicidad 
+           de claves y pedidos en una sola
+      372 -entrada; salida 0 aunque fallen (precisión de Ana). **Motivo:*
+          -* controlar al nivel donde la regla                           
+      372 +entrada; salida 0 aunque fallen (precisión de Ana; que el cont
+          +rol 3 sea una sola entrada,                                   
+      373 +confirmado expresamente por Ana). **Motivo:** controlar al niv
+          +el donde la regla                                             
+      374  tiene sentido. → R15, R17.
+      375  
+      376  **A17. Determinismo.**
+
+● Ahora sustituyo el código copiado en el Anexo A por una referencia al fichero,
+  para que no haya dos versiones del script.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ya no queda ninguna referencia a la ruta antigua. Ejecuto los comandos exactos
+  que cita la especificación:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Las 21 filas salen y las dos claves que no deben aparecer no aparecen. Para no
+  compararlo a ojo, cruzo automáticamente cada fila esperada que cita la
+  especificación con la salida del script:
+  Ran 1 shell command (ctrl+o to expand)
+
+● He guardado el script y he vuelto a calcular las cifras: coinciden todas. No
+  he hecho commit (git status: ?? docs/specs/).
+
+  Cambios
+  - docs/specs/KIV-101/reference_calc.py es el script del scratchpad, con un
+    docstring nuevo que explica cómo se usa. No importa nada de kivora/, así que
+    los escenarios se calculan independientemente del pipeline.
+  - spec.md:
+    - §5 cita los dos comandos exactos, con uv run python -I 
+      docs/specs/KIV-101/reference_calc.py …. El segundo saca las filas de
+      E1–E17 y lleva dos claves que no deben aparecer: 2026-09-03,C021 (E2) y
+      2026-09-05,C014 (E11).
+    - §6 cita el mismo comando para las carpetas sintéticas y dice que S7 y S8
+      no se han ejecutado.
+    - El Anexo A ya no copia el código: remite al fichero y conserva la salida
+      de --summary. Así no hay dos versiones del script que puedan acabar
+      distintas.
+    - En A2 y A16 queda anotado que confirmaste tú el riesgo aceptado y que el
+      control 3 sea una sola entrada.
+
+  Comprobación
+  - --summary termina con código 0 y da lo mismo que antes:
+    - 156 ventas, bruto 18490.74, devuelto 1264.19 y neto 17226.55;
+    - 126 filas, 11 solo con devoluciones y 12 con neto negativo;
+    - los 6 mismos rechazos.
+  - El comando de las filas saca las 21 esperadas, y las dos claves que no deben
+    aparecer no aparecen.
+  - Un cruce automático entre las filas completas que cita §5 y la salida del
+    script da 20 de 20 iguales. La fila de C002 del 09-04 en E12 está abreviada
+    con "…" y no entra en el cruce; en la salida es
+    2026-09-04,C002,ES,2,405.40,0.00,405.40,0,2026-09-04, que es lo que dice la
+    especificación.
+
+  Cuando la revises, el siguiente paso es el commit de la especificación y
+  después el borrador del plan.
+
+✻ Churned for 1m 31s · done 19:05
+
+※ recap: Estamos en la fase 2 de KIV-101: la especificación (`spec.md`) y el script de referencia están escritos y sus cifras verificadas, sin commit. Lo siguiente es que revises la especificación y hagamos su commit antes del borrador del plan. (disable recaps in /config)
+
+> He revisado spec.md y he contrastado las 21 filas de E1-E17, los totales y    
+  los rechazos con un cálculo independiente: coinciden. Antes del commit, dos   
+  cambios:                                                                      
+  1. En §3.2 y R9, el orden de prioridad no coincide con reference_calc.py: el  
+  script detecta primero los duplicados por refund_id (duplicate_refund /       
+  conflicting_duplicate) y después valida la primera aparición. Ajusta la tabla 
+  de prioridad y R8/R9 para que digan lo que hace el script.                    
+  2. Cambia el estado a "aprobada por Ana tras revisión (fase 2)".              
+     Después vuelve a ejecutar el --summary para confirmar que no cambia nada y 
+  haz un commit con docs/specs/KIV-101/spec.md y                                
+  docs/specs/KIV-101/reference_calc.py, con mensaje en español y tu             
+  Co-Authored-By. No hagas push ni tag.                                         
+
+  Searched for 1 pattern, read 1 file (ctrl+o to expand)
+
+● Cambio el orden en la tabla de §3.2. En R8 y R9 mantengo la numeración, porque
+  E10, S1–S3 y S5 los citan por número, y escribo explícitamente que los
+  duplicados se resuelven antes de validar.
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 3 lines, removed 3 lines
+      68  | orders | `unknown_currency` | La moneda no está en `fx_rates.
+          csv` |
+      69  | orders | `not_sale_cancelled` | La última versión está cancel
+          ada |
+      70  | orders | `not_sale_unpaid` | Ningún pago `captured` |
+      71 -| refunds | `invalid_record` | Falta un campo obligatorio, `ref
+         -unded_at` no ISO 8601, `amount` no numérico o ≤ 0 |            
+      71 +| refunds | `conflicting_duplicate` | El mismo `refund_id` lleg
+         +a con contenido distinto (se rechazan todas sus apariciones, si
+         +n validarlas) |                                                
+      72 +| refunds | `duplicate_refund` | Copia idéntica de la primera a
+         +parición de ese `refund_id` (las copias se rechazan aunque la p
+         +rimera aparición resulte inválida) |                           
+      73 +| refunds | `invalid_record` | La primera aparición tiene un ca
+         +mpo obligatorio vacío, `refunded_at` no ISO 8601 o `amount` no 
+         +numérico o ≤ 0 |                                               
+      74  | refunds | `unknown_currency` | La moneda no está en `fx_rates
+          .csv` |
+      73 -| refunds | `conflicting_duplicate` | El mismo `refund_id` lleg
+         -a con contenido distinto (se rechazan todas sus apariciones) | 
+      74 -| refunds | `duplicate_refund` | Copia idéntica de una devoluci
+         -ón ya usada |                                                  
+      75  | refunds | `order_not_found` | El `order_id` no está en ningún
+           `orders.csv` |
+      76  | refunds | `order_not_sale` | El pedido existe pero no es vent
+          a (rechazado por cualquiera de los motivos de `orders`) |
+      77  | refunds | `currency_mismatch` | Moneda distinta de la del ped
+          ido |
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 10 lines, removed 6 lines
+      154  
+      155  **Devoluciones**
+      156  
+      157 -- **R8.** Cada devolución se valida: `refund_id`, `order_id`, 
+          -`refunded_at` y `currency` no vacíos,                         
+      158 -  `refunded_at` ISO 8601, `amount` numérico > 0 y moneda en `f
+          -x_rates.csv`. Si falla:                                       
+      159 -  `invalid_record` o `unknown_currency`.                      
+      160 -- **R9.** Si un `refund_id` aparece varias veces con contenido
+          - idéntico, se usa la primera aparición                        
+      161 -  (carpeta anterior, posición anterior) y cada copia se rechaz
+          -a con `duplicate_refund`. Si el                               
+      162 -  contenido difiere, se rechazan todas con `conflicting_duplic
+          -ate`. Dos devoluciones con distinto                           
+      157 +Las devoluciones se tratan en este orden: primero los duplicad
+          +os (R9), después la validación de                             
+      158 +la aparición que queda (R8), después el pedido (R10) y por últ
+          +imo el límite (R11).                                          
+      159 +                                                              
+      160 +- **R8.** De cada `refund_id`, solo la aparición que queda tra
+          +s R9 se valida: `refund_id`,                                  
+      161 +  `order_id`, `refunded_at` y `currency` no vacíos, `refunded_
+          +at` ISO 8601, `amount` numérico > 0 y                         
+      162 +  moneda en `fx_rates.csv`. Si falla: `invalid_record` o `unkn
+          +own_currency`.                                                
+      163 +- **R9.** Antes de validar, las devoluciones se agrupan por `r
+          +efund_id` (sin espacios). Si todas las                        
+      164 +  apariciones de un `refund_id` tienen contenido idéntico, se 
+          +queda la primera (carpeta anterior,                           
+      165 +  posición anterior) y cada copia se rechaza con `duplicate_re
+          +fund`. Si el contenido difiere, se                            
+      166 +  rechazan todas con `conflicting_duplicate` y ninguna pasa a 
+          +R8. Dos devoluciones con distinto                             
+      167    `refund_id` son siempre distintas.
+      168  - **R10.** Una devolución cuyo pedido no existe se rechaza con
+            `order_not_found`; si el pedido
+      169    existe pero no es venta, con `order_not_sale`; si su moneda 
+           no es la del pedido, con
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 1 line, removed 1 line
+      1  # KIV-101 · Especificación: devoluciones y métricas diarias por 
+         cliente
+      2  
+      3  - **Ticket:** `docs/tickets/KIV-101.md`
+      4 -- **Estado:** borrador para revisión (fase 2). No se ha modifica
+        -do código.                                                      
+      4 +- **Estado:** aprobada por Ana tras revisión (fase 2). No se ha 
+        +modificado código.                                              
+      5  - **Decisiones:** Ana, a partir de la propuesta del agente (secc
+         ión [Aclaraciones](#aclaraciones)).
+      6  - **Datos de referencia:** `data/inbox/2026-09-01` … `2026-09-07
+         ` y `data/reference/fx_rates.csv`
+      7    (EUR 1.0, GBP 1.17, USD 0.92).
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ha salido igual que la vez anterior. Hago el commit con solo esos dos
+  ficheros:
+
+  Ran 1 shell command (ctrl+o to expand)
+  ⎿  PostToolUse:Bash says: Tip: Run /ultrareview before you push to catch bugs 
+     with a cloud-based multi-agent review — 3 free reviews left.
+
+● He hecho los dos cambios y el commit 1f2c8a1 («docs: especificación de KIV-101
+  y cálculo de referencia»). Lleva solo spec.md y reference_calc.py, con la
+  línea Co-Authored-By. La copia de trabajo queda limpia, sin push y sin tag.
+
+  Cambios
+  1. Prioridad. La tabla de §3.2 sigue ahora el orden del script para las
+     devoluciones:
+     a. conflicting_duplicate y duplicate_refund;
+     b. invalid_record y unknown_currency;
+     c. order_not_found, order_not_sale y currency_mismatch;
+     d. refund_exceeds_order.
+
+     Encima de R8 he añadido una frase con ese orden de tratamiento. R8 dice
+     ahora que solo se valida la aparición que queda tras R9. R9 dice que la
+     agrupación por refund_id va antes de validar y que las de contenido
+     distinto no se validan. He dejado la numeración como estaba, porque E10,
+     S1–S3 y S5 citan R8 y R9 por número.
+  2. Estado: «aprobada por Ana tras revisión (fase 2)».
+
+  El --summary da lo mismo que antes y termina con código 0: 156 ventas,
+  18490.74 / 1264.19 / 17226.55, 126 filas y los 6 mismos rechazos.
+
+  Un caso límite del script que ahora queda en la especificación. Como los
+  duplicados se agrupan antes de validar, las devoluciones con el refund_id
+  vacío caen todas en el mismo grupo "":
+  - Si hay varias distintas, salen como conflicting_duplicate en lugar de
+    invalid_record.
+  - Una copia idéntica de un registro inválido sale como duplicate_refund.
+
+  En los datos de ejemplo no ocurre, y sigue rechazándose todo, pero el motivo
+  que aparece es menos claro. Si prefieres que un refund_id vacío dé siempre
+  invalid_record, habría que cambiar el script y R9, y te recomiendo hacerlo
+  antes del plan.
+
+✻ Worked for 1m 3s · done 19:13
+
+> Sí, arréglalo antes del plan: una devolución con refund_id vacío (tras quitar 
+  espacios) no entra en la agrupación de duplicados y se rechaza directamente   
+  con invalid_record, cada una por separado. Actualiza R8/R9 y la tabla de      
+  §3.2, añade este caso a S3 (dos devoluciones sin refund_id → dos filas        
+  invalid_record) y ajusta reference_calc.py. Ejecuta el --summary (debe dar lo 
+  mismo) y el caso sintético nuevo, enséñame los dos resultados y haz un        
+  commit separado con mensaje en español y tu Co-Authored-By. Sin push ni tag.  
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(docs\specs\KIV-101\reference_calc.py)
+  ⎿  Added 4 lines, removed 1 line
+      47      sales[oid] = dict(customer_id=o["customer_id"].strip(), dat
+          e=mdate(o["created_at"]), cur=cur, amt=amt, eur=q(amt * fx[cur]
+          ))
+      48  
+      49  byid = defaultdict(list)
+      50 -for day, i, r in refunds: byid[str(r.get("refund_id", "")).stri
+         -p()].append((day, i, r))                                       
+      50 +for day, i, r in refunds:                                      
+      51 +    rid = str(r.get("refund_id") or "").strip()                
+      52 +    if not rid: rejected.append(("refunds", "", day, "invalid_r
+         +ecord")); continue  # sin refund_id: no se agrupa (R9)         
+      53 +    byid[rid].append((day, i, r))                              
+      54  cand = []
+      55  for rid, occ in byid.items():
+      56      sig = lambda r: json.dumps(r, sort_keys=True)
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 1 line
+      68  | orders | `unknown_currency` | La moneda no está en `fx_rates.
+          csv` |
+      69  | orders | `not_sale_cancelled` | La última versión está cancel
+          ada |
+      70  | orders | `not_sale_unpaid` | Ningún pago `captured` |
+      71 +| refunds | `invalid_record` | `refund_id` vacío (tras quitar e
+         +spacios): se rechaza directamente, cada aparición por separado,
+         + sin pasar por la detección de duplicados |                    
+      72  | refunds | `conflicting_duplicate` | El mismo `refund_id` lleg
+          a con contenido distinto (se rechazan todas sus apariciones, si
+          n validarlas) |
+      73  | refunds | `duplicate_refund` | Copia idéntica de la primera a
+          parición de ese `refund_id` (las copias se rechazan aunque la p
+          rimera aparición resulte inválida) |
+      74  | refunds | `invalid_record` | La primera aparición tiene un ca
+          mpo obligatorio vacío, `refunded_at` no ISO 8601 o `amount` no 
+          numérico o ≤ 0 |
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 6 lines, removed 4 lines
+      155  
+      156  **Devoluciones**
+      157  
+      158 -Las devoluciones se tratan en este orden: primero los duplicad
+          -os (R9), después la validación de                             
+      159 -la aparición que queda (R8), después el pedido (R10) y por últ
+          -imo el límite (R11).                                          
+      158 +Las devoluciones se tratan en este orden: primero las que no t
+          +ienen `refund_id` (R8), después                               
+      159 +los duplicados (R9), después la validación de la aparición que
+          + queda (R8), después el pedido (R10)                          
+      160 +y por último el límite (R11).                                 
+      161  
+      161 -- **R8.** De cada `refund_id`, solo la aparición que queda tra
+          -s R9 se valida: `refund_id`,                                  
+      162 -  `order_id`, `refunded_at` y `currency` no vacíos, `refunded_
+          -at` ISO 8601, `amount` numérico > 0 y                         
+      162 +- **R8.** Una devolución con `refund_id` vacío (tras quitar es
+          +pacios) se rechaza directamente con                           
+      163 +  `invalid_record`, cada aparición por separado, y no entra en
+          + R9. De cada `refund_id` no vacío,                            
+      164 +  solo la aparición que queda tras R9 se valida: `order_id`, `
+          +refunded_at` y `currency` no vacíos, `refunded_at` ISO 8601, `
+          +amount` numérico > 0 y                                        
+      165    moneda en `fx_rates.csv`. Si falla: `invalid_record` o `unkn
+           own_currency`.
+      166  - **R9.** Antes de validar, las devoluciones se agrupan por `r
+           efund_id` (sin espacios). Si todas las
+      167    apariciones de un `refund_id` tienen contenido idéntico, se 
+           queda la primera (carpeta anterior,
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 2 lines, removed 1 line
+      163    `invalid_record`, cada aparición por separado, y no entra en
+            R9. De cada `refund_id` no vacío,
+      164    solo la aparición que queda tras R9 se valida: `order_id`, `
+           refunded_at` y `currency` no vacíos, `refunded_at` ISO 8601, `
+           amount` numérico > 0 y
+      165    moneda en `fx_rates.csv`. Si falla: `invalid_record` o `unkn
+           own_currency`.
+      166 -- **R9.** Antes de validar, las devoluciones se agrupan por `r
+          -efund_id` (sin espacios). Si todas las                        
+      166 +- **R9.** Antes de validar, las devoluciones con `refund_id` n
+          +o vacío se agrupan por `refund_id`                            
+      167 +  (sin espacios). Si todas las                                
+      168    apariciones de un `refund_id` tienen contenido idéntico, se 
+           queda la primera (carpeta anterior,
+      169    posición anterior) y cada copia se rechaza con `duplicate_re
+           fund`. Si el contenido difiere, se
+      170    rechazan todas con `conflicting_duplicate` y ninguna pasa a 
+           R8. Dos devoluciones con distinto
+
+● Ahora §6: añado las dos devoluciones sin refund_id a la base S y actualizo S3
+  y el total del conjunto.
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 3 lines, removed 1 line
+      260  | K-4 | *(vacío)* | 2026-09-01T13:00:00Z | EUR | 15.00 |
+      261  | K-5 | C9 | 2026-09-01T14:00:00Z | EUR | 20.00 |
+      262  
+      263 -`refunds.json`: R-2 (K-1, 500 JPY), R-3 (K-1, −5.0 EUR), R-4 (
+          -`order_id` vacío, 3.0 EUR).                                   
+      263 +`refunds.json`: R-2 (K-1, 500 JPY), R-3 (K-1, −5.0 EUR), R-4 (
+          +`order_id` vacío, 3.0 EUR) y dos                              
+      264 +devoluciones sin `refund_id`, distintas entre sí: `refund_id` 
+          += `""` (K-1, 1.0 EUR,                                         
+      265 +`2026-09-01T16:00:00Z`) y `refund_id` = `"  "` (K-1, 2.0 EUR, 
+          +`2026-09-01T16:10:00Z`).                                      
+      266  
+      267  | ID | Caso | Resultado esperado | Requisitos |
+      268  | --- | --- | --- | --- |
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 1 line, removed 1 line
+      268  | --- | --- | --- | --- |
+      269  | S1 | Moneda desconocida | `orders,K-2,unknown_currency`; `re
+           funds,R-2,unknown_currency` | R3, R8 |
+      270  | S2 | Importe ≤ 0 | `orders,K-3,invalid_record`; `refunds,R-3
+           ,invalid_record` | R3, R8 |
+      271 -| S3 | Campo obligatorio vacío | `orders,K-4,invalid_record`; 
+          -`refunds,R-4,invalid_record` | R3, R8 |                       
+      271 +| S3 | Campo obligatorio vacío | `orders,K-4,invalid_record`; 
+          +`refunds,R-4,invalid_record`; las dos devoluciones sin `refund
+          +_id` dan **dos** filas `refunds,,invalid_record` (no `conflict
+          +ing_duplicate`) y no suman a K-1 | R3, R8, R9 |               
+      272  | S4 | Cliente inexistente | `2026-09-01,C9,UNKNOWN,1,20.00,0.
+           00,20.00,0,2026-09-01` (la venta no se pierde) | R7 |
+      273  | S1–S4 | Conjunto | `daily_customer_metrics.csv` = `2026-09-0
+           1,C1,ES,1,10.00,0.00,10.00,0,2026-09-01` y la fila de S4; 6 fi
+           las en `rejected.csv`; código 0 | R12, R13, R17 |
+      274  
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 1 line, removed 1 line
+      270  | S2 | Importe ≤ 0 | `orders,K-3,invalid_record`; `refunds,R-3
+           ,invalid_record` | R3, R8 |
+      271  | S3 | Campo obligatorio vacío | `orders,K-4,invalid_record`; 
+           `refunds,R-4,invalid_record`; las dos devoluciones sin `refund
+           _id` dan **dos** filas `refunds,,invalid_record` (no `conflict
+           ing_duplicate`) y no suman a K-1 | R3, R8, R9 |
+      272  | S4 | Cliente inexistente | `2026-09-01,C9,UNKNOWN,1,20.00,0.
+           00,20.00,0,2026-09-01` (la venta no se pierde) | R7 |
+      273 -| S1–S4 | Conjunto | `daily_customer_metrics.csv` = `2026-09-0
+          -1,C1,ES,1,10.00,0.00,10.00,0,2026-09-01` y la fila de S4; 6 fi
+          -las en `rejected.csv`; código 0 | R12, R13, R17 |             
+      273 +| S1–S4 | Conjunto | `daily_customer_metrics.csv` = `2026-09-0
+          +1,C1,ES,1,10.00,0.00,10.00,0,2026-09-01` y la fila de S4; 8 fi
+          +las en `rejected.csv`; código 0 | R12, R13, R17 |             
+      274  
+      275  **Base T (dos días).** Pedido K-1 (C1, 10.00 EUR, `captured`) 
+           el `2026-09-01`.
+      276  `2026-09-01/refunds.json`: R-5 (K-1, 2.0 EUR, `2026-09-01T15:0
+           0:00Z`) y R-6 (K-1, 3.0 **GBP**).
+
+● Pongo las dos devoluciones nuevas en el caso sintético del scratchpad y
+  ejecuto los dos comandos:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Los resultados son los esperados. Hago el commit separado:
+  Ran 1 shell command (ctrl+o to expand)
+
+● Corregido. Una devolución sin refund_id se rechaza ahora con invalid_record,
+  cada una por separado, y los datos reales dan las mismas cifras. Está en el
+  commit 82f1ca0, separado del anterior, con la línea Co-Authored-By. No hay
+  push ni tag y la copia de trabajo está limpia.
+
+  Cambios
+  - reference_calc.py: una devolución con refund_id vacío tras quitar espacios
+    se rechaza con invalid_record antes de buscar duplicados. Al hacerlo corregí
+    también otro fallo: un refund_id que venía como null en el JSON se
+    convertía en el texto "None" y no se veía como vacío.
+  - spec.md:
+    - En la tabla de §3.2, la primera fila de devoluciones es ahora
+      invalid_record por refund_id vacío, antes de los duplicados.
+    - El párrafo que ordena los pasos empieza por las devoluciones sin
+      refund_id.
+    - R8 recoge el rechazo directo y R9 aclara que solo se agrupan las que
+      tienen refund_id.
+    - La base S lleva dos devoluciones sin refund_id (una con "" y otra con "  
+      ", distintas entre sí). S3 espera dos filas invalid_record en lugar de
+      conflicting_duplicate, y el conjunto S1–S4 pasa de 6 a 8 rechazos.
+
+  Resultado 1: --summary sobre data/inbox (igual que antes, código 0)
+  ventas 156 bruto 18490.74 devuelto 1264.19 neto 17226.55 filas 126
+  solo_devolucion 11 neto_negativo 12
+  rejected orders K-10062 2026-09-02 not_sale_unpaid
+  rejected orders K-10149 2026-09-05 not_sale_cancelled
+  rejected refunds R-1003 2026-09-05 order_not_found
+  rejected refunds R-1005 2026-09-05 order_not_sale
+  rejected refunds R-1006 2026-09-06 duplicate_refund
+  rejected refunds R-1009 2026-09-07 refund_exceeds_order
+
+  Resultado 2: sintético S1–S4, con las dos devoluciones sin refund_id (código 
+  0)
+  ventas 2 bruto 30.00 devuelto 0 neto 30.00 filas 2 solo_devolucion 0
+  neto_negativo 0
+  rejected orders K-2 2026-09-01 unknown_currency
+  rejected orders K-3 2026-09-01 invalid_record
+  rejected orders K-4 2026-09-01 invalid_record
+  rejected refunds  2026-09-01 invalid_record      ← refund_id ""
+  rejected refunds  2026-09-01 invalid_record      ← refund_id "  "
+  rejected refunds R-2 2026-09-01 unknown_currency
+  rejected refunds R-3 2026-09-01 invalid_record
+  rejected refunds R-4 2026-09-01 invalid_record
+  Las filas de métricas son las de siempre, C1 con 10.00 y C9 en UNKNOWN con
+  20.00: las dos devoluciones sin id no restan nada a K-1. También volví a
+  ejecutar S5–S6 y siguen saliendo conflicting_duplicate para R-5 y
+  currency_mismatch para R-6.
+
+  Un detalle para el plan: las dos filas sin refund_id son idénticas en source,
+  record_id, inbox_day y reason. Con el orden de §3.4 la salida sigue siendo
+  determinista, pero solo la columna detail las distingue. Si quieres poder
+  separarlas, en el plan podemos poner en detail la posición del registro dentro
+  de su fichero.
+
+✻ Brewed for 57s · done 19:16
+
+> Ahora el plan de implementación. A partir de docs/specs/KIV-101/spec.md,      
+  escribe docs/specs/KIV-101/plan.md. No implementes nada ni toques kivora/,    
+  sql/ ni tests/.                                                               
+                                                                                
+  El plan debe tener:                                                           
+  - Enfoque técnico y su justificación (por ejemplo, si la lógica nueva va en   
+  SQL o en Python, teniendo en cuenta Decimal, zoneinfo y determinismo).        
+  - Tareas pequeñas y ordenadas (T1, T2...). Para cada una: qué se hace,        
+  archivos afectados, requisitos y escenarios que cubre (R*, E*, S*) y cómo se  
+  verifica (comando y resultado esperado).                                      
+  - Incluye la tarea acceptance en tasks.py (fase 4 de assignment.md), los      
+  tests mínimos de la sección 4 de assignment.md y qué hacer con los tests      
+  existentes.                                                                   
+  - Riesgos y cómo se mitigan.                                                  
+    Cuando lo escribas, haz un commit solo con plan.md, con el mensaje "docs:   
+  plan de KIV-101 (borrador del agente)" y tu Co-Authored-By. No lo modifiques  
+  después del commit: lo revisaré yo.                                           
+
+● Antes de planificar leo el código actual para que el plan se apoye en lo que
+  hay.
+
+  Read 1 file, listed 1 directory (ctrl+o to expand)
+
+● Ya tengo el contexto del código. Escribo el plan:
+
+● Write(docs\specs\KIV-101\plan.md)
+  ⎿  Wrote 282 lines to docs\specs\KIV-101\plan.md
+       1 # KIV-101 · Plan de implementación
+       2 
+       3 - **Especificación:** `docs/specs/KIV-101/spec.md` (aprobada). L
+         os identificadores R*, E* y S* son
+       4   los suyos.
+       5 - **Estado:** borrador del agente, pendiente de revisión por Ana
+         . En la fase 2 no se toca
+       6   `kivora/`, `sql/` ni `tests/`.
+       7 
+       8 ## 1. Punto de partida (verificado leyendo el código)
+     … +274 lines (ctrl+o to expand)
+
+● Compruebo los números de línea que cito en §1 antes del commit:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Dos referencias están desplazadas una línea. Las corrijo y hago el commit:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● He escrito docs/specs/KIV-101/plan.md y lo he guardado en el commit dd9df1e
+  «docs: plan de KIV-101 (borrador del agente)», solo con ese fichero y con
+  Co-Authored-By. No he tocado kivora/, sql/ ni tests/. No hay push ni tag, y no
+  volveré a modificar el plan hasta que lo revises. Antes del commit corregí
+  dos números de línea mal citados en §1 (__main__.py:16-28 y check.py:29),
+  comprobándolos con grep -n.
+
+  Qué contiene
+  - §1 Punto de partida: lo que hace hoy el código, con archivo y línea.
+  - §2 Enfoque: la lógica nueva va en Python, por cuatro motivos:
+    - SQLite no tiene decimales exactos; Python tiene Decimal, y refunds.json se
+      leería con parse_float=Decimal;
+    - SQLite no tiene zonas horarias; Python tiene zoneinfo;
+    - las reglas con orden de la especificación se prueban más fácilmente como
+      funciones puras;
+    - el orden de las salidas se fija explícitamente, lo que asegura el
+      determinismo.
+
+    daily_sales y sus SQL no cambian.
+  - §3 Tareas T0–T12. Cada una dice qué se hace, qué archivos toca, qué R/E/S
+    cubre y cómo se verifica.
+    - T1 es la tarea acceptance, y va primero para tener la señal de parada
+      desde el principio. Comprueba las filas literales de E1–E19, compara la
+      salida completa con reference_calc.py, ejecuta S1–S8, compara el SHA-256
+      de dos ejecuciones y comprueba que data/inbox/ no cambia.
+    - T3 son los siete tests mínimos de assignment.md §4. Para cada uno se
+      indica qué defecto debe detectar, y hay más tests para el resto de reglas,
+      entre ellos un cambio de día en invierno.
+    - T10 comprueba que cada test falla si se introduce a mano su defecto.
+    - T11 deja sin tocar los 4 tests existentes, porque D5 deja daily_sales
+      fuera de alcance. test_gross_matches_source_total se documenta como test
+      que fija un defecto conocido, en lugar de adaptarlo en silencio.
+  - §4 Riesgos: 12 riesgos, cada uno con su mitigación.
+
+  Puntos a revisar (los dejo aquí porque el borrador ya no se toca):
+  1. __main__.py (T2). El plan lo modifica para capturar un JSON roto y
+     devolver 2. Las opciones de la interfaz no cambian, pero es un fichero que
+     CLAUDE.md protege.
+  2. Leer los CSV con utf-8-sig y tratar una columna que falta como InputError.
+     Está en los riesgos de §4, pero no en la especificación: decide si lo
+     quieres.
+  3. Formato de detail: "<fichero>#<_pos>: …". Lo propone T8 y la especificación
+     no lo fija.
+  4. kivora/acceptance.py. Es la única excepción al grep contra ids de la
+     muestra dentro de kivora/.
+  5. Granularidad. T4–T7 se apoyan en los tests de T3, en rojo hasta T8. Puede
+     que prefieras escribir los tests regla a regla junto a cada tarea, en lugar
+     de todos al principio.
+
+✻ Cogitated for 2m 47s · done 19:21
+
+> He revisado el borrador del plan. Aplica estos cambios en plan.md y añade al  
+  final una sección "Revisión del plan" con una tabla: problema, cambio y       
+  motivo (revisión de Ana):                                                     
+  P1. acceptance no debe depender de que data/inbox solo tenga los días 01-07:  
+  debe copiar a una carpeta temporal solo los días de los escenarios            
+  (2026-09-01 a 2026-09-07) y comprobar ahí E1-E19 y el diferencial con         
+  reference_calc.py, para que siga pasando cuando llegue la entrega 2 (fase 5). 
+  Añade como riesgo que en KIV-102 habrá que adaptar reference_calc.py al       
+  campo refund_amount.                                                          
+  P2. Indica que la implementación (T0 en adelante) empieza después de la fase  
+  3 (configuración del agente, tag phase-3) y en qué momento se crean los tags  
+  phase-2 y phase-4.                                                            
+  P3. Del riesgo de entrada: se acepta leer los CSV con utf-8-sig (añádelo como 
+  nota a R1 en spec.md); se descarta el InputError por columna que falte,       
+  porque el enunciado garantiza el mismo formato.                               
+  P4. En T12, quita el contrato nuevo                                           
+  docs/data-contracts/daily_customer_metrics.md; spec.md §3 ya lo cubre.        
+  P5. En el cierre de la fase 4, añade exportar la sesión con /export a         
+  docs/sessions/ y registrar cada vuelta en docs/report.md.                     
+  Añade también como riesgo que el oráculo compara con un cálculo escrito por   
+  el mismo agente, mitigado porque Ana contrastó las cifras con un cálculo      
+  independiente.                                                                
+  Cambia el estado a "revisado por Ana". Haz un commit con plan.md y spec.md    
+  con el mensaje "docs: plan de KIV-101 revisado" y tu Co-Authored-By. Sin push 
+  ni tag.                                                                       
+
+  Read 1 file (ctrl+o to expand)
+
+● Antes de editar compruebo si alguno de los CSV de la muestra trae BOM, porque
+  reference_calc.py los lee como utf-8:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● La muestra no tiene BOM, así que utf-8-sig no altera ninguna cifra; sin
+  embargo, reference_calc.py lee con utf-8, y lo alinearé como subtarea de T1 al
+  aplicar los cambios. · summary
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 14 lines, removed 2 lines
+       2  
+       3  - **Especificación:** `docs/specs/KIV-101/spec.md` (aprobada). 
+          Los identificadores R*, E* y S* son
+       4    los suyos.
+       5 -- **Estado:** borrador del agente, pendiente de revisión por An
+         -a. En la fase 2 no se toca                                     
+       6 -  `kivora/`, `sql/` ni `tests/`.                               
+       5 +- **Estado:** revisado por Ana (ver [Revisión del plan](#revisi
+         +ón-del-plan)). En la fase 2 no se                              
+       6 +  toca `kivora/`, `sql/` ni `tests/`.                          
+       7  
+       8 +## 0. Fases y tags                                             
+       9 +                                                               
+      10 +| Momento | Qué se cierra | Tag |                              
+      11 +| --- | --- | --- |                                            
+      12 +| Commit de este plan revisado (junto con `spec.md`) | Fase 2: 
+         +especificación y plan, sin cambios en `kivora/`, `sql/` ni `tes
+         +ts/` | `phase-2`, sobre ese commit |                           
+      13 +| Configuración del agente (`.claude/settings.json`, mecanismos
+         + de extensión y sección de `docs/report.md`) | Fase 3 | `phase-
+         +3` |                                                           
+      14 +| T0–T12 terminadas, con `tasks.py test`, `check` y `acceptance
+         +` en verde y la sesión exportada | Fase 4 | `phase-4`, sobre el
+         + último commit de T12 |                                        
+      15 +                                                               
+      16 +**La implementación (T0 en adelante) empieza después de la fase
+         + 3**, cuando ya existe el tag                                  
+      17 +`phase-3`, para que el agente trabaje con los permisos y el mec
+         +anismo de parada configurados. Los                             
+      18 +tags los crea Ana; el agente no hace push ni crea tags.        
+      19 +                                                               
+      20  ## 1. Punto de partida (verificado leyendo el código)
+      21  
+      22  - `kivora/pipeline.py:26-45`: crea `out/`, recrea `warehouse.db
+          `, carga los datos en bruto
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 5 lines, removed 1 line
+      89  - **Qué:**
+      90    - `tasks.py`: nueva tarea `acceptance` que llama a `_module("
+          kivora.acceptance")`.
+      91    - `kivora/acceptance.py`:
+      92 -    1. Ejecuta `python -m kivora --inbox data/inbox --reference
+         - data/reference --out <tmp>/run1` y                            
+      92 +    0. Copia a `<tmp>/inbox` **solo** las carpetas de los escen
+         +arios, de `2026-09-01` a `2026-09-07`                          
+      93 +       (lista fija en el módulo), desde `data/inbox/`. Si falta
+         + alguna, `FAIL` con su nombre. Los                             
+      94 +       días que se añadan después (entrega 2, fase 5) no se cop
+         +ian, así que los escenarios de                                 
+      95 +       KIV-101 siguen siendo válidos.                          
+      96 +    1. Ejecuta `python -m kivora --inbox <tmp>/inbox --referenc
+         +e data/reference --out <tmp>/run1` y                           
+      97         `.../run2` como subprocesos y exige código 0.
+      98      2. Comprueba que existen los tres ficheros, con las columna
+          s de spec §3.1–3.3.
+      99      3. Comprueba las filas literales de E1–E17, las ausencias d
+          e E2 y E11 y los totales y rechazos
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 1 line, removed 1 line
+      100         de E18. Esos valores van escritos en el módulo, cada un
+           o con su id E*.
+      101      4. Hace una comparación diferencial completa: las 126 fila
+           s de `daily_customer_metrics.csv` y
+      102         `(source, record_id, inbox_day, reason)` de `rejected.c
+           sv` deben ser iguales a la salida de
+      103 -       `docs/specs/KIV-101/reference_calc.py`.                
+      103 +       `docs/specs/KIV-101/reference_calc.py` ejecutado **sobr
+          +e la misma copia** `<tmp>/inbox`.                             
+      104      5. Construye S1–S8 en carpetas temporales y comprueba sus 
+           resultados. En S7 espera un código
+      105         distinto de 0 y el nombre del fichero en el mensaje.
+      106      6. Comprueba E19: el mismo SHA-256 en run1 y run2 para los
+            tres ficheros nuevos, y el mismo
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 1 line, removed 1 line
+      104      5. Construye S1–S8 en carpetas temporales y comprueba sus 
+           resultados. En S7 espera un código
+      105         distinto de 0 y el nombre del fichero en el mensaje.
+      106      6. Comprueba E19: el mismo SHA-256 en run1 y run2 para los
+            tres ficheros nuevos, y el mismo
+      107 -       hash del árbol `data/inbox/` antes y después.          
+      107 +       hash antes y después, tanto del árbol `data/inbox/` com
+          +o de la copia `<tmp>/inbox`.                                  
+      108      7. Imprime `PASS`/`FAIL` por escenario y termina con 0 sol
+           o si pasan todos.
+      109  - **Archivos:** `tasks.py`, `kivora/acceptance.py`.
+      110  - **Cubre:** E1–E19, S1–S8 (la verificación; la implementación
+            viene después).
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 4 lines, removed 1 line
+      106      6. Comprueba E19: el mismo SHA-256 en run1 y run2 para los
+            tres ficheros nuevos, y el mismo
+      107         hash antes y después, tanto del árbol `data/inbox/` com
+           o de la copia `<tmp>/inbox`.
+      108      7. Imprime `PASS`/`FAIL` por escenario y termina con 0 sol
+           o si pasan todos.
+      109 -- **Archivos:** `tasks.py`, `kivora/acceptance.py`.           
+      109 +  - `docs/specs/KIV-101/reference_calc.py`: leer los CSV con `
+          +utf-8-sig`, como el pipeline (R1).                            
+      110 +    Con la muestra no cambia nada, porque ningún CSV de `data/
+          +inbox/` trae BOM; el `--summary`                              
+      111 +    debe dar las mismas cifras.                               
+      112 +- **Archivos:** `tasks.py`, `kivora/acceptance.py`, `docs/spec
+          +s/KIV-101/reference_calc.py`.                                 
+      113  - **Cubre:** E1–E19, S1–S8 (la verificación; la implementación
+            viene después).
+      114  - **Verificación:**
+      115    - Ahora, `uv run python tasks.py acceptance` → código ≠ 0, c
+           on `FAIL` porque faltan los tres
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 2 lines, removed 1 line
+      123  - **Qué:**
+      124    - `ingest.py`: tabla `raw_refunds` (`refund_id`, `order_id`,
+            `refunded_at`, `amount`,
+      125      `currency`, `_day`, `_pos`), todo como TEXT, con los impor
+           tes guardados tal cual (texto del
+      126 -    `Decimal`). Columna `_pos` en todas las `raw_*`.          
+      126 +    `Decimal`). Columna `_pos` en todas las `raw_*`. Los CSV s
+          +e leen con `utf-8-sig` (nota de R1),                          
+      127 +    lo que también afecta a la carga de `daily_sales` sin camb
+          +iar su resultado.                                             
+      128    - Un fichero ausente o con `[]` no carga nada. Si el JSON es
+            inválido, o no es una lista, se lanza
+      129      `InputError("<ruta>: ...")`.
+      130    - `__main__.py`: captura `InputError`, imprime el mensaje en
+            stderr y devuelve 2. Las opciones no
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 15 lines, removed 4 lines
+      275  ### T12 · Documentación y respuesta a Finanzas
+      276  
+      277  - **Qué:**
+      278 -  - `docs/sources.md`: sección `refunds.json`.                
+      279 -  - Nuevo contrato `docs/data-contracts/daily_customer_metrics
+          -.md`, que resume spec §3.                                     
+      278 +  - `docs/sources.md`: sección `refunds.json`. No se crea un c
+          +ontrato aparte: `spec.md` §3 ya                               
+      279 +    define las salidas.                                       
+      280    - `README.md` y `CLAUDE.md`: salidas nuevas y comando `uv ru
+           n python tasks.py acceptance`.
+      281    - `docs/report.md`: ciclo de iteración, trazabilidad R → E/S
+            → test, tabla de T10 y decisión de T11.
+      282    - Respuesta en `docs/tickets/KIV-101.md`, en lenguaje de neg
+           ocio, con las cifras de E18.
+      283  - **Archivos:** los citados.
+      284 -- **Verificación:** cada afirmación nueva con su archivo:línea
+          - o comando (regla de `CLAUDE.md`);                            
+      285 -  `uv run python tasks.py test`, `check` y `acceptance` en ver
+          -de como cierre de la fase 4.                                  
+      284 +- **Verificación:** cada afirmación nueva con su archivo:línea
+          + o comando (regla de `CLAUDE.md`).                            
+      285  
+      286 +### Cierre de la fase 4                                       
+      287 +                                                              
+      288 +1. `uv run python tasks.py test`, `uv run python tasks.py chec
+          +k` y `uv run python tasks.py acceptance`                      
+      289 +   en verde.                                                  
+      290 +2. **Cada vuelta del ciclo con el agente registrada en `docs/r
+          +eport.md`** (sección "Ciclo de                                
+      291 +   iteración"), a medida que ocurre y no al final: qué feedbac
+          +k se le dio (salida de tests, del                             
+      292 +   oráculo o revisión), qué cambió y con qué criterio se dio p
+          +or terminada.                                                 
+      293 +3. **Sesión exportada** con `/export` a `docs/sessions/` (por 
+          +ejemplo                                                       
+      294 +   `docs/sessions/fase4-kiv101-implementacion.txt`), sin edita
+          +r y revisada antes para que no                                
+      295 +   contenga secretos ni datos personales.                     
+      296 +4. Tag `phase-4` (lo crea Ana).                               
+      297 +                                                              
+      298  ## 4. Riesgos y mitigación
+      299  
+      300  | Riesgo | Mitigación |
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 3 lines, removed 1 line
+      302  | Que un importe pase por `float` (JSON, SQLite REAL o `round(
+           )`) y cambie un céntimo | `parse_float=Decimal`; importes como
+            TEXT en SQLite; solo `quantize(ROUND_HALF_UP)`; test 6 y defe
+           cto de T10 |
+      303  | Que la fecha use un desfase fijo y falle en invierno | `zone
+           info` más `tzdata` (ya en `pyproject.toml`); test de invierno 
+           en T3 |
+      304  | Ajustarse a la muestra (ids o fechas en el código) | Reglas 
+           generales en la especificación; tests sintéticos; antes de cer
+           rar, `grep -rnE "K-1[0-9]{4}\|R-10[0-9]{2}" kivora/ sql/` sin 
+           resultados salvo en `kivora/acceptance.py` |
+      305 -| Que el oráculo y el pipeline compartan el mismo error, porqu
+          -e los escribe el mismo agente | Filas literales de E1–E18 cont
+          -rastadas por Ana con un cálculo independiente; S1–S8 con resul
+          -tado razonado a mano; T10 |                                   
+      305 +| Que el oráculo compare con un cálculo escrito por el mismo a
+          +gente (`reference_calc.py`), de modo que pipeline y referencia
+          + compartan el mismo error | Ana contrastó las 21 filas de E1–E
+          +17, los totales y los rechazos de E18 con un cálculo independi
+          +ente y coinciden; el oráculo comprueba además esas filas liter
+          +ales, no solo el diferencial; S1–S8 con resultado razonado a m
+          +ano; T10 |                                                    
+      306 +| Que `acceptance` deje de pasar cuando lleguen días nuevos a 
+          +`data/inbox/` (entrega 2, fase 5) | `acceptance` trabaja sobre
+          + una copia temporal con solo los días `2026-09-01` a `2026-09-
+          +07` (T1, paso 0) |                                            
+      307 +| KIV-102 cambia `refunds.json`: habrá que adaptar `reference_
+          +calc.py` al campo `refund_amount` | Se hace en la fase 5, con 
+          +su análisis de impacto; mientras no se adapte, el diferencial 
+          +de `acceptance` sobre días con el formato nuevo no es válido |
+      308  | Salida no determinista (orden de diccionarios o ficheros, `\
+           r\n` en Windows) | Orden explícito en §3.1/§3.2; `newline=""` 
+           y `lineterminator="\n"`; SHA-256 de dos ejecuciones en `accept
+           ance` |
+      309  | Romper `daily_sales` o la interfaz | No se tocan `sql/`, `to
+           p_customers` ni las opciones; T2 compara `daily_sales.csv` byt
+           e a byte con T0; los 4 tests antiguos siguen igual |
+      310  | `check` falla con los ficheros nuevos (`KeyError` en `reject
+           ed.csv`) | T9 |
+
+● Update(docs\specs\KIV-101\plan.md)
+  ⎿  Added 1 line, removed 1 line
+      309  | Romper `daily_sales` o la interfaz | No se tocan `sql/`, `to
+           p_customers` ni las opciones; T2 compara `daily_sales.csv` byt
+           e a byte con T0; los 4 tests antiguos siguen igual |
+      310  | `check` falla con los ficheros nuevos (`KeyError` en `reject
+           ed.csv`) | T9 |
+      311  | Filas de `rejected.csv` imposibles de distinguir | `detail` 
+           con fichero y posición (T8) |
+      312 -| CSV de entrada con BOM o columnas que faltan | Leer con `utf
+          --8-sig`; una columna obligatoria que falta en un fichero es `I
+          -nputError` con la ruta (como S7). Se propone en la revisión: n
+          -o está en la especificación |                                 
+      312 +| CSV de entrada con BOM | Leer con `utf-8-sig` (nota de R1 en
+          + `spec.md`; T2 y T1). Las columnas que faltan no se tratan: el
+          + enunciado garantiza el mismo formato |                       
+      313  | Volúmenes mayores en los datos desconocidos | `last_purchase
+           _date` con `bisect`; sin bucles cuadráticos |
+      314  | Que el agente siga trabajando con `acceptance` en rojo, o lo
+            dé por terminado sin ejecutarlo | `acceptance` como condición
+            de parada (hook `Stop` o skill en la fase 3); criterio de ter
+           minado de `CLAUDE.md` |
+      315  | Modificar `data/inbox/` sin querer | El pipeline solo escrib
+           e en `--out`; hash de `data/inbox/` en `acceptance`; permisos 
+           de la fase 3 |
+
+● Añado al final la sección "Revisión del plan" y la nota de R1 en spec.md:
+
+  Read 1 file, ran 1 shell command (ctrl+o to expand)
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 4 lines
+      127    todo el `--inbox`, de modo que un registro que llega en una 
+           entrega posterior se tiene en cuenta en
+      128    la ejecución siguiente.
+      129  
+      130 +  *Nota (revisión del plan, P3):* los CSV se leen como `utf-8-
+          +sig`, de modo que un BOM inicial no                           
+      131 +  altera el nombre de la primera columna. No se valida que fal
+          +ten columnas: el formato de entrada                           
+      132 +  está garantizado.                                           
+      133 +                                                              
+      134  **Pedidos**
+      135  
+      136  - **R2.** De cada `order_id` se usa solo la última versión: ma
+           yor `updated_at`; si empata, la de la
+
+● Repaso el diff antes del commit:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● El contrato nuevo solo se menciona ya en la fila P4 de la revisión. Hago el
+  commit:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● He aplicado tu revisión y está en el commit 09ddd1b «docs: plan de KIV-101
+  revisado», solo con plan.md y spec.md y con Co-Authored-By. La copia de
+  trabajo queda limpia, sin push y sin tag.
+
+  Cambios en plan.md
+  - P1: en T1 hay un paso 0 nuevo. acceptance copia a una carpeta temporal solo
+    los días 2026-09-01 a 2026-09-07 y falla nombrando el día si falta alguno.
+    El pipeline, reference_calc.py y la comprobación de que la entrada no cambia
+    trabajan sobre esa copia. En riesgos se añaden dos filas: una sobre la
+    entrega 2 y otra sobre refund_amount en KIV-102.
+  - P2: nueva sección 0 · Fases y tags:
+    - phase-2 va sobre este commit;
+    - T0 empieza después de phase-3;
+    - phase-4 va sobre el último commit de T12;
+    - los tags los creas tú.
+  - P3: utf-8-sig entra en T2 y en reference_calc.py, como subtarea de T1. El
+    InputError por columna que falte queda descartado.
+  - P4: T12 ya no crea daily_customer_metrics.md.
+  - P5: nueva subsección Cierre de la fase 4: los tres comandos en verde, cada
+    vuelta registrada en docs/report.md a medida que ocurre, la sesión exportada
+    con /export a docs/sessions/ y el tag.
+  - Riesgo del oráculo: he reescrito la fila que ya había para que diga que el
+    oráculo compara con un cálculo del mismo agente y que lo mitiga tu contraste
+    independiente. Como no la he añadido como fila nueva, no hay dos filas que
+    digan lo mismo.
+  - Estado: «revisado por Ana».
+  - Revisión del plan: tabla P1–P7 con problema, cambio y motivo. P6 es el
+    riesgo del oráculo y P7 el cambio de estado.
+
+  Cambio en spec.md: una nota en R1 sobre leer los CSV con utf-8-sig y no
+  validar columnas que falten.
+
+  Dos detalles que conviene que sepas
+  - He comprobado que ningún CSV de data/inbox/ ni de data/reference/ trae BOM,
+    así que utf-8-sig no cambia ninguna cifra. reference_calc.py sigue leyendo
+    utf-8 porque esta vez no estaba en el commit; alinearlo es una subtarea de
+    T1.
+  - El nombre del campo refund_amount lo he copiado tal cual de tu mensaje. No
+    he mirado deliveries/ para confirmarlo.
+
+  Lo siguiente es que crees el tag phase-2 sobre 09ddd1b, si das la fase por
+  cerrada.
+
+✻ Worked for 1m 36s · done 19:24
+
+● Keeping auto (1m tokens) · /autocompact to change
