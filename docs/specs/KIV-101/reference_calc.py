@@ -47,7 +47,10 @@ for oid, (_, o, day) in orders.items():
     sales[oid] = dict(customer_id=o["customer_id"].strip(), date=mdate(o["created_at"]), cur=cur, amt=amt, eur=q(amt * fx[cur]))
 
 byid = defaultdict(list)
-for day, i, r in refunds: byid[str(r.get("refund_id", "")).strip()].append((day, i, r))
+for day, i, r in refunds:
+    rid = str(r.get("refund_id") or "").strip()
+    if not rid: rejected.append(("refunds", "", day, "invalid_record")); continue  # sin refund_id: no se agrupa (R9)
+    byid[rid].append((day, i, r))
 cand = []
 for rid, occ in byid.items():
     sig = lambda r: json.dumps(r, sort_keys=True)

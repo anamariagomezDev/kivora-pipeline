@@ -68,6 +68,7 @@ cumpla):
 | orders | `unknown_currency` | La moneda no está en `fx_rates.csv` |
 | orders | `not_sale_cancelled` | La última versión está cancelada |
 | orders | `not_sale_unpaid` | Ningún pago `captured` |
+| refunds | `invalid_record` | `refund_id` vacío (tras quitar espacios): se rechaza directamente, cada aparición por separado, sin pasar por la detección de duplicados |
 | refunds | `conflicting_duplicate` | El mismo `refund_id` llega con contenido distinto (se rechazan todas sus apariciones, sin validarlas) |
 | refunds | `duplicate_refund` | Copia idéntica de la primera aparición de ese `refund_id` (las copias se rechazan aunque la primera aparición resulte inválida) |
 | refunds | `invalid_record` | La primera aparición tiene un campo obligatorio vacío, `refunded_at` no ISO 8601 o `amount` no numérico o ≤ 0 |
@@ -154,13 +155,16 @@ Generales: no dependen de ningún identificador, fecha ni moneda concretos de la
 
 **Devoluciones**
 
-Las devoluciones se tratan en este orden: primero los duplicados (R9), después la validación de
-la aparición que queda (R8), después el pedido (R10) y por último el límite (R11).
+Las devoluciones se tratan en este orden: primero las que no tienen `refund_id` (R8), después
+los duplicados (R9), después la validación de la aparición que queda (R8), después el pedido (R10)
+y por último el límite (R11).
 
-- **R8.** De cada `refund_id`, solo la aparición que queda tras R9 se valida: `refund_id`,
-  `order_id`, `refunded_at` y `currency` no vacíos, `refunded_at` ISO 8601, `amount` numérico > 0 y
+- **R8.** Una devolución con `refund_id` vacío (tras quitar espacios) se rechaza directamente con
+  `invalid_record`, cada aparición por separado, y no entra en R9. De cada `refund_id` no vacío,
+  solo la aparición que queda tras R9 se valida: `order_id`, `refunded_at` y `currency` no vacíos, `refunded_at` ISO 8601, `amount` numérico > 0 y
   moneda en `fx_rates.csv`. Si falla: `invalid_record` o `unknown_currency`.
-- **R9.** Antes de validar, las devoluciones se agrupan por `refund_id` (sin espacios). Si todas las
+- **R9.** Antes de validar, las devoluciones con `refund_id` no vacío se agrupan por `refund_id`
+  (sin espacios). Si todas las
   apariciones de un `refund_id` tienen contenido idéntico, se queda la primera (carpeta anterior,
   posición anterior) y cada copia se rechaza con `duplicate_refund`. Si el contenido difiere, se
   rechazan todas con `conflicting_duplicate` y ninguna pasa a R8. Dos devoluciones con distinto
@@ -256,15 +260,17 @@ sin `--summary` para las filas); S7 y S8 no se han ejecutado.
 | K-4 | *(vacío)* | 2026-09-01T13:00:00Z | EUR | 15.00 |
 | K-5 | C9 | 2026-09-01T14:00:00Z | EUR | 20.00 |
 
-`refunds.json`: R-2 (K-1, 500 JPY), R-3 (K-1, −5.0 EUR), R-4 (`order_id` vacío, 3.0 EUR).
+`refunds.json`: R-2 (K-1, 500 JPY), R-3 (K-1, −5.0 EUR), R-4 (`order_id` vacío, 3.0 EUR) y dos
+devoluciones sin `refund_id`, distintas entre sí: `refund_id` = `""` (K-1, 1.0 EUR,
+`2026-09-01T16:00:00Z`) y `refund_id` = `"  "` (K-1, 2.0 EUR, `2026-09-01T16:10:00Z`).
 
 | ID | Caso | Resultado esperado | Requisitos |
 | --- | --- | --- | --- |
 | S1 | Moneda desconocida | `orders,K-2,unknown_currency`; `refunds,R-2,unknown_currency` | R3, R8 |
 | S2 | Importe ≤ 0 | `orders,K-3,invalid_record`; `refunds,R-3,invalid_record` | R3, R8 |
-| S3 | Campo obligatorio vacío | `orders,K-4,invalid_record`; `refunds,R-4,invalid_record` | R3, R8 |
+| S3 | Campo obligatorio vacío | `orders,K-4,invalid_record`; `refunds,R-4,invalid_record`; las dos devoluciones sin `refund_id` dan **dos** filas `refunds,,invalid_record` (no `conflicting_duplicate`) y no suman a K-1 | R3, R8, R9 |
 | S4 | Cliente inexistente | `2026-09-01,C9,UNKNOWN,1,20.00,0.00,20.00,0,2026-09-01` (la venta no se pierde) | R7 |
-| S1–S4 | Conjunto | `daily_customer_metrics.csv` = `2026-09-01,C1,ES,1,10.00,0.00,10.00,0,2026-09-01` y la fila de S4; 6 filas en `rejected.csv`; código 0 | R12, R13, R17 |
+| S1–S4 | Conjunto | `daily_customer_metrics.csv` = `2026-09-01,C1,ES,1,10.00,0.00,10.00,0,2026-09-01` y la fila de S4; 8 filas en `rejected.csv`; código 0 | R12, R13, R17 |
 
 **Base T (dos días).** Pedido K-1 (C1, 10.00 EUR, `captured`) el `2026-09-01`.
 `2026-09-01/refunds.json`: R-5 (K-1, 2.0 EUR, `2026-09-01T15:00:00Z`) y R-6 (K-1, 3.0 **GBP**).
