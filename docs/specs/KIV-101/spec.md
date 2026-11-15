@@ -127,6 +127,10 @@ Generales: no dependen de ningún identificador, fecha ni moneda concretos de la
   todo el `--inbox`, de modo que un registro que llega en una entrega posterior se tiene en cuenta en
   la ejecución siguiente.
 
+  *Nota (revisión del plan, P3):* los CSV se leen como `utf-8-sig`, de modo que un BOM inicial no
+  altera el nombre de la primera columna. No se valida que falten columnas: el formato de entrada
+  está garantizado.
+
 **Pedidos**
 
 - **R2.** De cada `order_id` se usa solo la última versión: mayor `updated_at`; si empata, la de la

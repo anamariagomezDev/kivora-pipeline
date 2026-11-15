@@ -2,8 +2,20 @@
 
 - **Especificación:** `docs/specs/KIV-101/spec.md` (aprobada). Los identificadores R*, E* y S* son
   los suyos.
-- **Estado:** borrador del agente, pendiente de revisión por Ana. En la fase 2 no se toca
-  `kivora/`, `sql/` ni `tests/`.
+- **Estado:** revisado por Ana (ver [Revisión del plan](#revisión-del-plan)). En la fase 2 no se
+  toca `kivora/`, `sql/` ni `tests/`.
+
+## 0. Fases y tags
+
+| Momento | Qué se cierra | Tag |
+| --- | --- | --- |
+| Commit de este plan revisado (junto con `spec.md`) | Fase 2: especificación y plan, sin cambios en `kivora/`, `sql/` ni `tests/` | `phase-2`, sobre ese commit |
+| Configuración del agente (`.claude/settings.json`, mecanismos de extensión y sección de `docs/report.md`) | Fase 3 | `phase-3` |
+| T0–T12 terminadas, con `tasks.py test`, `check` y `acceptance` en verde y la sesión exportada | Fase 4 | `phase-4`, sobre el último commit de T12 |
+
+**La implementación (T0 en adelante) empieza después de la fase 3**, cuando ya existe el tag
+`phase-3`, para que el agente trabaje con los permisos y el mecanismo de parada configurados. Los
+tags los crea Ana; el agente no hace push ni crea tags.
 
 ## 1. Punto de partida (verificado leyendo el código)
 
@@ -77,20 +89,27 @@ implementar regla a regla. Cada tarea es un commit, con `Co-Authored-By` en los 
 - **Qué:**
   - `tasks.py`: nueva tarea `acceptance` que llama a `_module("kivora.acceptance")`.
   - `kivora/acceptance.py`:
-    1. Ejecuta `python -m kivora --inbox data/inbox --reference data/reference --out <tmp>/run1` y
+    0. Copia a `<tmp>/inbox` **solo** las carpetas de los escenarios, de `2026-09-01` a `2026-09-07`
+       (lista fija en el módulo), desde `data/inbox/`. Si falta alguna, `FAIL` con su nombre. Los
+       días que se añadan después (entrega 2, fase 5) no se copian, así que los escenarios de
+       KIV-101 siguen siendo válidos.
+    1. Ejecuta `python -m kivora --inbox <tmp>/inbox --reference data/reference --out <tmp>/run1` y
        `.../run2` como subprocesos y exige código 0.
     2. Comprueba que existen los tres ficheros, con las columnas de spec §3.1–3.3.
     3. Comprueba las filas literales de E1–E17, las ausencias de E2 y E11 y los totales y rechazos
        de E18. Esos valores van escritos en el módulo, cada uno con su id E*.
     4. Hace una comparación diferencial completa: las 126 filas de `daily_customer_metrics.csv` y
        `(source, record_id, inbox_day, reason)` de `rejected.csv` deben ser iguales a la salida de
-       `docs/specs/KIV-101/reference_calc.py`.
+       `docs/specs/KIV-101/reference_calc.py` ejecutado **sobre la misma copia** `<tmp>/inbox`.
     5. Construye S1–S8 en carpetas temporales y comprueba sus resultados. En S7 espera un código
        distinto de 0 y el nombre del fichero en el mensaje.
     6. Comprueba E19: el mismo SHA-256 en run1 y run2 para los tres ficheros nuevos, y el mismo
-       hash del árbol `data/inbox/` antes y después.
+       hash antes y después, tanto del árbol `data/inbox/` como de la copia `<tmp>/inbox`.
     7. Imprime `PASS`/`FAIL` por escenario y termina con 0 solo si pasan todos.
-- **Archivos:** `tasks.py`, `kivora/acceptance.py`.
+  - `docs/specs/KIV-101/reference_calc.py`: leer los CSV con `utf-8-sig`, como el pipeline (R1).
+    Con la muestra no cambia nada, porque ningún CSV de `data/inbox/` trae BOM; el `--summary`
+    debe dar las mismas cifras.
+- **Archivos:** `tasks.py`, `kivora/acceptance.py`, `docs/specs/KIV-101/reference_calc.py`.
 - **Cubre:** E1–E19, S1–S8 (la verificación; la implementación viene después).
 - **Verificación:**
   - Ahora, `uv run python tasks.py acceptance` → código ≠ 0, con `FAIL` porque faltan los tres
@@ -104,7 +123,8 @@ implementar regla a regla. Cada tarea es un commit, con `Co-Authored-By` en los 
 - **Qué:**
   - `ingest.py`: tabla `raw_refunds` (`refund_id`, `order_id`, `refunded_at`, `amount`,
     `currency`, `_day`, `_pos`), todo como TEXT, con los importes guardados tal cual (texto del
-    `Decimal`). Columna `_pos` en todas las `raw_*`.
+    `Decimal`). Columna `_pos` en todas las `raw_*`. Los CSV se leen con `utf-8-sig` (nota de R1),
+    lo que también afecta a la carga de `daily_sales` sin cambiar su resultado.
   - Un fichero ausente o con `[]` no carga nada. Si el JSON es inválido, o no es una lista, se lanza
     `InputError("<ruta>: ...")`.
   - `__main__.py`: captura `InputError`, imprime el mensaje en stderr y devuelve 2. Las opciones no
@@ -255,14 +275,25 @@ implementar regla a regla. Cada tarea es un commit, con `Co-Authored-By` en los 
 ### T12 · Documentación y respuesta a Finanzas
 
 - **Qué:**
-  - `docs/sources.md`: sección `refunds.json`.
-  - Nuevo contrato `docs/data-contracts/daily_customer_metrics.md`, que resume spec §3.
+  - `docs/sources.md`: sección `refunds.json`. No se crea un contrato aparte: `spec.md` §3 ya
+    define las salidas.
   - `README.md` y `CLAUDE.md`: salidas nuevas y comando `uv run python tasks.py acceptance`.
   - `docs/report.md`: ciclo de iteración, trazabilidad R → E/S → test, tabla de T10 y decisión de T11.
   - Respuesta en `docs/tickets/KIV-101.md`, en lenguaje de negocio, con las cifras de E18.
 - **Archivos:** los citados.
-- **Verificación:** cada afirmación nueva con su archivo:línea o comando (regla de `CLAUDE.md`);
-  `uv run python tasks.py test`, `check` y `acceptance` en verde como cierre de la fase 4.
+- **Verificación:** cada afirmación nueva con su archivo:línea o comando (regla de `CLAUDE.md`).
+
+### Cierre de la fase 4
+
+1. `uv run python tasks.py test`, `uv run python tasks.py check` y `uv run python tasks.py acceptance`
+   en verde.
+2. **Cada vuelta del ciclo con el agente registrada en `docs/report.md`** (sección "Ciclo de
+   iteración"), a medida que ocurre y no al final: qué feedback se le dio (salida de tests, del
+   oráculo o revisión), qué cambió y con qué criterio se dio por terminada.
+3. **Sesión exportada** con `/export` a `docs/sessions/` (por ejemplo
+   `docs/sessions/fase4-kiv101-implementacion.txt`), sin editar y revisada antes para que no
+   contenga secretos ni datos personales.
+4. Tag `phase-4` (lo crea Ana).
 
 ## 4. Riesgos y mitigación
 
@@ -271,12 +302,30 @@ implementar regla a regla. Cada tarea es un commit, con `Co-Authored-By` en los 
 | Que un importe pase por `float` (JSON, SQLite REAL o `round()`) y cambie un céntimo | `parse_float=Decimal`; importes como TEXT en SQLite; solo `quantize(ROUND_HALF_UP)`; test 6 y defecto de T10 |
 | Que la fecha use un desfase fijo y falle en invierno | `zoneinfo` más `tzdata` (ya en `pyproject.toml`); test de invierno en T3 |
 | Ajustarse a la muestra (ids o fechas en el código) | Reglas generales en la especificación; tests sintéticos; antes de cerrar, `grep -rnE "K-1[0-9]{4}\|R-10[0-9]{2}" kivora/ sql/` sin resultados salvo en `kivora/acceptance.py` |
-| Que el oráculo y el pipeline compartan el mismo error, porque los escribe el mismo agente | Filas literales de E1–E18 contrastadas por Ana con un cálculo independiente; S1–S8 con resultado razonado a mano; T10 |
+| Que el oráculo compare con un cálculo escrito por el mismo agente (`reference_calc.py`), de modo que pipeline y referencia compartan el mismo error | Ana contrastó las 21 filas de E1–E17, los totales y los rechazos de E18 con un cálculo independiente y coinciden; el oráculo comprueba además esas filas literales, no solo el diferencial; S1–S8 con resultado razonado a mano; T10 |
+| Que `acceptance` deje de pasar cuando lleguen días nuevos a `data/inbox/` (entrega 2, fase 5) | `acceptance` trabaja sobre una copia temporal con solo los días `2026-09-01` a `2026-09-07` (T1, paso 0) |
+| KIV-102 cambia `refunds.json`: habrá que adaptar `reference_calc.py` al campo `refund_amount` | Se hace en la fase 5, con su análisis de impacto; mientras no se adapte, el diferencial de `acceptance` sobre días con el formato nuevo no es válido |
 | Salida no determinista (orden de diccionarios o ficheros, `\r\n` en Windows) | Orden explícito en §3.1/§3.2; `newline=""` y `lineterminator="\n"`; SHA-256 de dos ejecuciones en `acceptance` |
 | Romper `daily_sales` o la interfaz | No se tocan `sql/`, `top_customers` ni las opciones; T2 compara `daily_sales.csv` byte a byte con T0; los 4 tests antiguos siguen igual |
 | `check` falla con los ficheros nuevos (`KeyError` en `rejected.csv`) | T9 |
 | Filas de `rejected.csv` imposibles de distinguir | `detail` con fichero y posición (T8) |
-| CSV de entrada con BOM o columnas que faltan | Leer con `utf-8-sig`; una columna obligatoria que falta en un fichero es `InputError` con la ruta (como S7). Se propone en la revisión: no está en la especificación |
+| CSV de entrada con BOM | Leer con `utf-8-sig` (nota de R1 en `spec.md`; T2 y T1). Las columnas que faltan no se tratan: el enunciado garantiza el mismo formato |
 | Volúmenes mayores en los datos desconocidos | `last_purchase_date` con `bisect`; sin bucles cuadráticos |
 | Que el agente siga trabajando con `acceptance` en rojo, o lo dé por terminado sin ejecutarlo | `acceptance` como condición de parada (hook `Stop` o skill en la fase 3); criterio de terminado de `CLAUDE.md` |
 | Modificar `data/inbox/` sin querer | El pipeline solo escribe en `--out`; hash de `data/inbox/` en `acceptance`; permisos de la fase 3 |
+
+## Revisión del plan
+
+Revisión de Ana sobre el borrador del agente (commit `dd9df1e`, «docs: plan de KIV-101 (borrador
+del agente)»). Cada cambio está en este fichero, salvo P3, que también añade una nota a R1 en
+`spec.md`.
+
+| # | Problema en el borrador | Cambio | Motivo (revisión de Ana) |
+| --- | --- | --- | --- |
+| P1 | `acceptance` ejecutaba el pipeline y `reference_calc.py` sobre `data/inbox/` completo, así que los escenarios dependían de que solo estuvieran los días 01–07 | T1, paso 0: se copian a una carpeta temporal solo los días `2026-09-01` a `2026-09-07`, y E1–E19 y el diferencial se comprueban sobre esa copia. Nuevo riesgo: adaptar `reference_calc.py` a `refund_amount` en KIV-102 | Con la entrega 2 (fase 5) llegan días nuevos, y `acceptance` debe seguir pasando sin reescribir los escenarios de KIV-101 |
+| P2 | No decía cuándo empieza la implementación ni cuándo se crean los tags | Nueva sección 0, «Fases y tags»: T0 empieza después de la fase 3 (tag `phase-3`); `phase-2` va sobre el commit de este plan revisado y `phase-4` sobre el último commit de T12 | El historial se evalúa: tags en orden y nada de código antes de tener especificación, plan revisado y configuración del agente |
+| P3 | El riesgo de entrada proponía `utf-8-sig` y además un `InputError` por columna que falte, ninguno de los dos en la especificación | Se acepta `utf-8-sig` (nota en R1 de `spec.md`; T2 y alineado en `reference_calc.py` en T1). Se descarta el `InputError` por columna que falte | El BOM es un detalle de codificación que no cambia el formato; las columnas que faltan no ocurren, porque el enunciado garantiza el mismo formato |
+| P4 | T12 creaba `docs/data-contracts/daily_customer_metrics.md` | Se quita de T12 | `spec.md` §3 ya define las salidas; un segundo documento podría acabar contradiciéndolo |
+| P5 | El cierre de la fase 4 no incluía exportar la sesión ni registrar cada vuelta | Nueva subsección «Cierre de la fase 4»: registrar cada vuelta en `docs/report.md` a medida que ocurre y exportar la sesión con `/export` a `docs/sessions/` | Son entregables de la fase 4 y de la memoria (`assignment.md` §4 y §6) |
+| P6 | El riesgo de que oráculo y pipeline compartan errores no decía en qué se apoyaba la mitigación | Fila de riesgos reescrita: el oráculo compara con un cálculo escrito por el mismo agente; se mitiga porque Ana contrastó las cifras con un cálculo independiente | Hacer explícito que el diferencial no basta por sí solo |
+| P7 | Estado «borrador del agente» | Estado «revisado por Ana» | Revisión terminada |
