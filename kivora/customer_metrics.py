@@ -5,7 +5,8 @@ plus `_day` (inbox folder) and `_pos` (position in its file). Requirement ids (R
 those of docs/specs/KIV-101/spec.md.
 """
 
-from collections import defaultdict
+from bisect import bisect_right
+from collections import Counter, defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
@@ -232,3 +233,67 @@ def apply_refund_limit(valid_rows, fx, sales):
                          "date": madrid_date(row["refunded_at"]), "currency": sale["currency"],
                          "amount": amount, "eur": to_eur(amount, fx[sale["currency"]])})
     return accepted, rejected
+
+
+# --- metrics (R13, R14) and quality checks (R15) -------------------------------
+
+METRIC_COLUMNS = ["metric_date", "customer_id", "country", "orders_count", "gross_amount",
+                  "refunded_amount", "net_amount", "refunds_count", "last_purchase_date"]
+CHECK_NAMES = ["net_equals_gross_minus_refunded", "refunds_within_order_total",
+               "unique_keys_and_orders"]
+
+
+def build_metrics(sales, accepted, countries):
+    """R13, R14: one row per (metric_date, customer_id) with a sale or an accepted refund.
+    Returns (rows sorted by metric_date, customer_id; order_ids aggregated, one per use)."""
+    totals = defaultdict(lambda: {"orders_count": 0, "gross_amount": ZERO,
+                                  "refunded_amount": ZERO, "refunds_count": 0})
+    aggregated, purchase_dates = [], defaultdict(list)
+    for sale in sales.values():
+        cell = totals[(sale["date"], sale["customer_id"])]
+        cell["orders_count"] += 1
+        cell["gross_amount"] += sale["eur"]
+        aggregated.append(sale["order_id"])
+        purchase_dates[sale["customer_id"]].append(sale["date"])
+    for refund in accepted:
+        cell = totals[(refund["date"], refund["customer_id"])]
+        cell["refunds_count"] += 1
+        cell["refunded_amount"] += refund["eur"]
+    for dates in purchase_dates.values():
+        dates.sort()
+    rows = []
+    for (day, cid), cell in sorted(totals.items()):
+        dates = purchase_dates.get(cid, [])
+        index = bisect_right(dates, day)  # last purchase <= metric_date, never in the future
+        rows.append({"metric_date": day, "customer_id": cid,
+                     "country": countries.get(cid, "UNKNOWN"), **cell,
+                     "net_amount": cell["gross_amount"] - cell["refunded_amount"],
+                     "last_purchase_date": dates[index - 1] if index else ""})
+    return rows, aggregated
+
+
+def quality_checks(rows, aggregated, accepted, sales):
+    """R15 / spec §3.3: the three checks, in order, computed on the output."""
+    bad_net = sum(1 for r in rows if r["net_amount"] != r["gross_amount"] - r["refunded_amount"])
+    refunded = defaultdict(Decimal)
+    for refund in accepted:
+        refunded[refund["order_id"]] += refund["amount"]
+    over = sum(1 for oid, amount in refunded.items() if amount > sales[oid]["total"])
+    keys = Counter((r["metric_date"], r["customer_id"]) for r in rows)
+    repeated = (sum(n - 1 for n in keys.values() if n > 1)
+                + sum(1 for n in Counter(aggregated).values() if n > 1))
+    return [{"name": name, "passed": failed == 0, "failed_records": failed}
+            for name, failed in zip(CHECK_NAMES, (bad_net, over, repeated))]
+
+
+def compute(order_rows, customer_rows, payment_rows, refund_rows, fx_rows):
+    """Whole KIV-101 computation: (metric rows, rejections, checks)."""
+    fx = fx_table(fx_rows)
+    latest = latest_orders(order_rows)
+    sales, rejected = classify_orders(latest, fx, captured_orders(payment_rows))
+    accepted, rejected_refunds = classify_refunds(refund_rows, fx, latest, sales)
+    rows, aggregated = build_metrics(sales, accepted, current_countries(customer_rows))
+    rejected = sorted(rejected + rejected_refunds,
+                      key=lambda r: (r["source"], r["record_id"], r["inbox_day"], r["reason"],
+                                     r["_pos"]))
+    return rows, rejected, quality_checks(rows, aggregated, accepted, sales)
