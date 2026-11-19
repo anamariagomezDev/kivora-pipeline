@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 
 MAD = ZoneInfo("Europe/Madrid")
 inbox, ref = Path(sys.argv[1]), Path(sys.argv[2])
-fx = {r["currency"].strip().upper(): Decimal(r["rate_to_eur"]) for r in csv.DictReader(open(ref / "fx_rates.csv", encoding="utf-8"))}
+fx = {r["currency"].strip().upper(): Decimal(r["rate_to_eur"]) for r in csv.DictReader(open(ref / "fx_rates.csv", encoding="utf-8-sig"))}
 q = lambda x: x.quantize(Decimal("0.01"), ROUND_HALF_UP)
 def ts(s): return datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
 def mdate(s): return ts(s).astimezone(MAD).date().isoformat()
@@ -22,12 +22,12 @@ def dec(v):
 
 orders, customers, captured, refunds = {}, {}, set(), []
 for day in sorted(p for p in inbox.iterdir() if p.is_dir()):
-    for i, r in enumerate(csv.DictReader(open(day / "orders.csv", encoding="utf-8")) if (day / "orders.csv").exists() else []):
+    for i, r in enumerate(csv.DictReader(open(day / "orders.csv", encoding="utf-8-sig")) if (day / "orders.csv").exists() else []):
         key = ((r.get("updated_at") or "").strip(), day.name, i)
         if r["order_id"] not in orders or key > orders[r["order_id"]][0]: orders[r["order_id"]] = (key, r, day.name)
-    for r in csv.DictReader(open(day / "customers.csv", encoding="utf-8")) if (day / "customers.csv").exists() else []:
+    for r in csv.DictReader(open(day / "customers.csv", encoding="utf-8-sig")) if (day / "customers.csv").exists() else []:
         customers[r["customer_id"]] = r
-    for r in csv.DictReader(open(day / "payments.csv", encoding="utf-8")) if (day / "payments.csv").exists() else []:
+    for r in csv.DictReader(open(day / "payments.csv", encoding="utf-8-sig")) if (day / "payments.csv").exists() else []:
         if (r.get("status") or "").strip() == "captured": captured.add(r["order_id"])
     if (day / "refunds.json").exists():
         for i, r in enumerate(json.load(open(day / "refunds.json", encoding="utf-8"))): refunds.append((day.name, i, r))

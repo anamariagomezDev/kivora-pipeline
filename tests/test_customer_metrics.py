@@ -1,0 +1,425 @@
+"""Tests de KIV-101: daily_customer_metrics, rejected.csv y quality_report.json.
+
+Datos sintéticos en tmp_path, nunca data/inbox/. Los ids R*, E* y S* son los de
+docs/specs/KIV-101/spec.md.
+"""
+
+import csv
+import hashlib
+import json
+from pathlib import Path
+
+import pytest
+
+from kivora.pipeline import run
+
+ROOT = Path(__file__).resolve().parent.parent
+REFERENCE = ROOT / "data" / "reference"  # EUR 1.0, GBP 1.17, USD 0.92 (solo lectura)
+
+ORDER_FIELDS = ["order_id", "customer_id", "created_at", "updated_at", "status",
+                "currency", "total_amount"]
+CUSTOMER_FIELDS = ["customer_id", "name", "country", "signup_date"]
+PAYMENT_FIELDS = ["payment_id", "order_id", "paid_at", "method", "status", "amount"]
+
+
+# --- helpers ---------------------------------------------------------------
+
+def order(oid, customer, created, amount, currency="EUR", status="confirmed", updated=None):
+    return {"order_id": oid, "customer_id": customer, "created_at": created,
+            "updated_at": updated or created, "status": status, "currency": currency,
+            "total_amount": amount}
+
+
+def payment(oid, amount="1.00", status="captured", pid=None):
+    return {"payment_id": pid or f"P-{oid}-{status}", "order_id": oid,
+            "paid_at": "2026-09-01T00:00:00Z", "method": "card", "status": status,
+            "amount": amount}
+
+
+def customer(cid, country="ES"):
+    return {"customer_id": cid, "name": f"Cliente {cid}", "country": country,
+            "signup_date": "2025-01-01"}
+
+
+def refund(rid, oid, at, amount, currency="EUR"):
+    return {"refund_id": rid, "order_id": oid, "refunded_at": at, "amount": amount,
+            "currency": currency}
+
+
+def _write_csv(path, fields, rows):
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fields, lineterminator="\n")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def write_day(inbox, day, orders=(), payments=(), customers=()):
+    folder = Path(inbox) / day
+    folder.mkdir(parents=True, exist_ok=True)
+    _write_csv(folder / "orders.csv", ORDER_FIELDS, orders)
+    _write_csv(folder / "payments.csv", PAYMENT_FIELDS, payments)
+    _write_csv(folder / "customers.csv", CUSTOMER_FIELDS, customers)
+    return folder
+
+
+def write_refunds(inbox, day, refunds):
+    """`refunds` es una lista (se serializa) o un texto (se escribe tal cual)."""
+    folder = Path(inbox) / day
+    folder.mkdir(parents=True, exist_ok=True)
+    text = refunds if isinstance(refunds, str) else json.dumps(refunds, indent=2)
+    (folder / "refunds.json").write_text(text, encoding="utf-8")
+
+
+def read_csv(path):
+    with open(path, encoding="utf-8", newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+def run_pipeline(tmp_path):
+    out = tmp_path / "out"
+    run(tmp_path / "inbox", REFERENCE, out)
+    return out
+
+
+def metrics(out):
+    return read_csv(out / "daily_customer_metrics.csv")
+
+
+def metrics_by_key(out):
+    rows = metrics(out)
+    keyed = {(r["metric_date"], r["customer_id"]): r for r in rows}
+    assert len(keyed) == len(rows), "claves (metric_date, customer_id) repetidas"
+    return keyed
+
+
+def rejected(out):
+    return [(r["source"], r["record_id"], r["inbox_day"], r["reason"])
+            for r in read_csv(out / "rejected.csv")]
+
+
+def quality(out):
+    report = json.loads((out / "quality_report.json").read_text(encoding="utf-8"))
+    return {c["name"]: c for c in report["checks"]}
+
+
+def values(row):
+    keys = ["country", "orders_count", "gross_amount", "refunded_amount", "net_amount",
+            "refunds_count", "last_purchase_date"]
+    return tuple(row[k] for k in keys)
+
+
+D1, D2, D3 = "2026-09-01", "2026-09-02", "2026-09-03"
+
+
+# --- los siete tests mínimos (assignment.md §4) ------------------------------
+
+def test_dedup_exact_copies_and_versions(tmp_path):
+    """1. Duplicados: copia exacta, versión con otro importe y versión cancelada (R2, R4)."""
+    inbox = tmp_path / "inbox"
+    k1 = order("K-1", "C1", "2026-09-01T10:00:00Z", "10.00")
+    write_day(inbox, D1,
+              orders=[k1, k1,
+                      order("K-2", "C2", "2026-09-01T11:00:00Z", "10.00"),
+                      order("K-3", "C3", "2026-09-01T12:00:00Z", "30.00")],
+              payments=[payment("K-1"), payment("K-2"), payment("K-3")],
+              customers=[customer("C1"), customer("C2"), customer("C3")])
+    write_day(inbox, D2,
+              orders=[order("K-2", "C2", "2026-09-01T11:00:00Z", "12.00",
+                            updated="2026-09-02T09:00:00Z"),
+                      order("K-3", "C3", "2026-09-01T12:00:00Z", "30.00", status="cancelled",
+                            updated="2026-09-02T09:00:00Z")])
+    out = run_pipeline(tmp_path)
+    rows = metrics_by_key(out)
+    assert values(rows[(D1, "C1")]) == ("ES", "1", "10.00", "0.00", "10.00", "0", D1)
+    assert values(rows[(D1, "C2")]) == ("ES", "1", "12.00", "0.00", "12.00", "0", D1)
+    assert (D1, "C3") not in rows
+    assert rejected(out) == [("orders", "K-3", D2, "not_sale_cancelled")]
+
+
+def test_null_and_missing_values(tmp_path):
+    """2. Nulos: país vacío, cliente inexistente, pedido sin cliente y devoluciones sin refund_id (R3, R7, R8)."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1,
+              orders=[order("K-1", "C1", "2026-09-01T10:00:00Z", "10.00"),
+                      order("K-2", "C9", "2026-09-01T11:00:00Z", "20.00"),
+                      order("K-3", "", "2026-09-01T12:00:00Z", "15.00")],
+              payments=[payment("K-1"), payment("K-2"), payment("K-3")],
+              customers=[customer("C1", country="")])
+    write_refunds(inbox, D1, [refund("", "K-1", "2026-09-01T16:00:00Z", 1.0),
+                              refund("  ", "K-1", "2026-09-01T16:10:00Z", 2.0)])
+    out = run_pipeline(tmp_path)
+    rows = metrics_by_key(out)
+    assert values(rows[(D1, "C1")]) == ("UNKNOWN", "1", "10.00", "0.00", "10.00", "0", D1)
+    assert values(rows[(D1, "C9")]) == ("UNKNOWN", "1", "20.00", "0.00", "20.00", "0", D1)
+    assert sorted(rejected(out)) == [("orders", "K-3", D1, "invalid_record"),
+                                     ("refunds", "", D1, "invalid_record"),
+                                     ("refunds", "", D1, "invalid_record")]
+
+
+def test_partial_refund(tmp_path):
+    """3. Devolución parcial (R11, R14)."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T10:00:00Z", "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T15:00:00Z", 3.0)])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "3.00", "7.00", "1", D1)
+    assert rejected(out) == []
+
+
+def test_multiple_refunds_same_order(tmp_path):
+    """4. Varias devoluciones del mismo pedido, cada una en su día (R6, R11, R13)."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T10:00:00Z", "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_refunds(inbox, D2, [refund("R-1", "K-1", "2026-09-02T10:00:00Z", 2.0)])
+    write_refunds(inbox, D3, [refund("R-2", "K-1", "2026-09-03T10:00:00Z", 3.0)])
+    out = run_pipeline(tmp_path)
+    rows = metrics_by_key(out)
+    assert len(rows) == 3
+    assert values(rows[(D1, "C1")]) == ("ES", "1", "10.00", "0.00", "10.00", "0", D1)
+    assert values(rows[(D2, "C1")]) == ("ES", "0", "0.00", "2.00", "-2.00", "1", D1)
+    assert values(rows[(D3, "C1")]) == ("ES", "0", "0.00", "3.00", "-3.00", "1", D1)
+    assert rejected(out) == []
+
+
+def test_refund_without_order(tmp_path):
+    """5. Devolución sin pedido: order_not_found y ninguna fila (R10, R12)."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-1", "K-404", "2026-09-01T10:00:00Z", 5.0)])
+    out = run_pipeline(tmp_path)
+    assert metrics(out) == []
+    assert rejected(out) == [("refunds", "R-1", D1, "order_not_found")]
+
+
+def test_net_amount(tmp_path):
+    """6. Neto = bruto − devuelto, EUR con redondeo por registro y neto negativo (R5, R14)."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1,
+              orders=[order("K-1", "C1", "2026-09-01T10:00:00Z", "100.00", currency="USD"),
+                      order("K-2", "C1", "2026-09-01T11:00:00Z", "73.56", currency="USD"),
+                      order("K-3", "C1", "2026-09-01T12:00:00Z", "179.88", currency="USD")],
+              payments=[payment("K-1"), payment("K-2"), payment("K-3")],
+              customers=[customer("C1", country="US")])
+    write_refunds(inbox, D2, [refund("R-1", "K-3", "2026-09-02T10:00:00Z", 179.88, "USD")])
+    out = run_pipeline(tmp_path)
+    rows = metrics_by_key(out)
+    # 92.00 + 67.68 + 165.49; redondear solo la suma (325.1648) daría 325.16
+    assert values(rows[(D1, "C1")]) == ("US", "3", "325.17", "0.00", "325.17", "0", D1)
+    assert values(rows[(D2, "C1")]) == ("US", "0", "0.00", "165.49", "-165.49", "1", D1)
+    assert quality(out)["net_equals_gross_minus_refunded"] == {
+        "name": "net_equals_gross_minus_refunded", "passed": True, "failed_records": 0}
+
+
+def test_no_duplicates_after_joins(tmp_path):
+    """7. Ni los pagos ni los clientes reenviados multiplican filas (R4, R7, control 3)."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T10:00:00Z", "30.00")],
+              payments=[payment("K-1", "10.00", pid="P-1"), payment("K-1", "20.00", pid="P-2"),
+                        payment("K-1", "30.00", "failed", pid="P-3")],
+              customers=[customer("C1", "ES")])
+    write_day(inbox, D2, customers=[customer("C1", "PT")])
+    write_day(inbox, D3, customers=[customer("C1", " fr ")])
+    write_refunds(inbox, D3, [refund("R-1", "K-1", "2026-09-01T18:00:00Z", 5.0)])
+    out = run_pipeline(tmp_path)
+    rows = metrics(out)
+    assert len(rows) == 1
+    assert values(rows[0]) == ("FR", "1", "30.00", "5.00", "25.00", "1", D1)
+    assert quality(out)["unique_keys_and_orders"]["failed_records"] == 0
+
+
+# --- tests adicionales, uno por regla -----------------------------------------
+
+def test_latest_version_tie_breaks_by_folder_then_row(tmp_path):
+    """R2: con el mismo updated_at gana la carpeta posterior y, dentro, la fila posterior."""
+    inbox = tmp_path / "inbox"
+    same = "2026-09-01T10:00:00Z"
+    write_day(inbox, D1,
+              orders=[order("K-1", "C1", same, "10.00"),
+                      order("K-2", "C2", same, "10.00"), order("K-2", "C2", same, "11.00")],
+              payments=[payment("K-1"), payment("K-2")],
+              customers=[customer("C1"), customer("C2")])
+    write_day(inbox, D2, orders=[order("K-1", "C1", same, "12.00")])
+    rows = metrics_by_key(run_pipeline(tmp_path))
+    assert rows[(D1, "C1")]["gross_amount"] == "12.00"
+    assert rows[(D1, "C2")]["gross_amount"] == "11.00"
+
+
+def test_refund_exceeds_order(tmp_path):
+    """R11: 6 + 5 sobre 10 rechaza la segunda entera; una tercera de 4 sí cabe."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-3", "K-1", "2026-09-01T12:00:00Z", 4.0),
+                              refund("R-2", "K-1", "2026-09-01T11:00:00Z", 5.0),
+                              refund("R-1", "K-1", "2026-09-01T10:00:00Z", 6.0)])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "10.00", "0.00", "2", D1)
+    assert rejected(out) == [("refunds", "R-2", D1, "refund_exceeds_order")]
+    assert quality(out)["refunds_within_order_total"]["failed_records"] == 0
+
+
+def test_duplicate_and_conflicting_refunds(tmp_path):
+    """R9: copia idéntica → duplicate_refund (se usa una vez); contenido distinto → conflicting_duplicate en todas."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 2.0),
+                              refund("R-2", "K-1", "2026-09-01T11:00:00Z", 1.0)])
+    write_refunds(inbox, D2, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 2.0),
+                              refund("R-2", "K-1", "2026-09-01T11:00:00Z", 4.0)])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "2.00", "8.00", "1", D1)
+    assert rejected(out) == [("refunds", "R-1", D2, "duplicate_refund"),
+                             ("refunds", "R-2", D1, "conflicting_duplicate"),
+                             ("refunds", "R-2", D2, "conflicting_duplicate")]
+
+
+def test_refund_of_order_that_is_not_a_sale(tmp_path):
+    """R10: devoluciones de un pedido cancelado y de uno sin pago capturado → order_not_sale."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1,
+              orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00", status="cancelled"),
+                      order("K-2", "C1", "2026-09-01T09:00:00Z", "10.00")],
+              payments=[payment("K-1"), payment("K-2", status="failed")],
+              customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 1.0),
+                              refund("R-2", "K-2", "2026-09-01T10:00:00Z", 1.0)])
+    out = run_pipeline(tmp_path)
+    assert metrics(out) == []
+    assert rejected(out) == [("orders", "K-1", D1, "not_sale_cancelled"),
+                             ("orders", "K-2", D1, "not_sale_unpaid"),
+                             ("refunds", "R-1", D1, "order_not_sale"),
+                             ("refunds", "R-2", D1, "order_not_sale")]
+
+
+def test_currency_mismatch_and_unknown_currency(tmp_path):
+    """R3, R8, R10: moneda fuera de fx_rates (pedido y devolución) y moneda distinta de la del pedido."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1,
+              orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00"),
+                      order("K-2", "C1", "2026-09-01T09:00:00Z", "1000", currency="JPY")],
+              payments=[payment("K-1"), payment("K-2")], customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 3.0, "GBP"),
+                              refund("R-2", "K-1", "2026-09-01T10:00:00Z", 500, "JPY"),
+                              refund("R-3", "K-1", "2026-09-01T10:00:00Z", 1.0, "eur")])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "1.00", "9.00", "1", D1)
+    assert rejected(out) == [("orders", "K-2", D1, "unknown_currency"),
+                             ("refunds", "R-1", D1, "currency_mismatch"),
+                             ("refunds", "R-2", D1, "unknown_currency")]
+
+
+def test_non_positive_amounts(tmp_path):
+    """R3, R8: importe ≤ 0 en pedido y en devolución → invalid_record."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1,
+              orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00"),
+                      order("K-2", "C1", "2026-09-01T09:00:00Z", "0.00")],
+              payments=[payment("K-1"), payment("K-2")], customers=[customer("C1")])
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", -5.0),
+                              refund("R-2", "K-1", "2026-09-01T10:00:00Z", 0)])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "0.00", "10.00", "0", D1)
+    assert rejected(out) == [("orders", "K-2", D1, "invalid_record"),
+                             ("refunds", "R-1", D1, "invalid_record"),
+                             ("refunds", "R-2", D1, "invalid_record")]
+
+
+@pytest.mark.parametrize("created, expected_date", [
+    ("2026-09-04T22:30:00Z", "2026-09-05"),  # verano: UTC+2
+    ("2026-12-01T22:30:00Z", "2026-12-01"),  # invierno: UTC+1 (un +2 fijo daría el 12-02)
+])
+def test_madrid_date_with_daylight_saving(tmp_path, created, expected_date):
+    """R6: día natural en Europe/Madrid con la base de zonas horarias, no un desfase fijo."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", created, "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    rows = metrics(run_pipeline(tmp_path))
+    assert [(r["metric_date"], r["last_purchase_date"]) for r in rows] == [
+        (expected_date, expected_date)]
+
+
+def test_last_purchase_date_does_not_look_ahead(tmp_path):
+    """R14 / E14: en una fila solo con devoluciones, la última compra ≤ metric_date."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_day(inbox, D3, orders=[order("K-2", "C1", "2026-09-03T08:00:00Z", "20.00")],
+              payments=[payment("K-2")])
+    write_refunds(inbox, D2, [refund("R-1", "K-1", "2026-09-02T10:00:00Z", 4.0)])
+    rows = metrics_by_key(run_pipeline(tmp_path))
+    assert values(rows[(D2, "C1")]) == ("ES", "0", "0.00", "4.00", "-4.00", "1", D1)
+    assert rows[(D3, "C1")]["last_purchase_date"] == D3
+
+
+def test_malformed_refunds_json_raises_input_error(tmp_path):
+    """R1 / S7: un refunds.json que no es JSON detiene el pipeline nombrando el fichero."""
+    from kivora import ingest
+
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, customers=[customer("C1")])
+    write_refunds(inbox, D1, "[{ esto no es json")
+    with pytest.raises(ingest.InputError, match="refunds.json"):
+        run_pipeline(tmp_path)
+
+
+def test_day_without_refunds_or_empty_list(tmp_path):
+    """R1 / S8: un día sin refunds.json o con [] no aporta devoluciones."""
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00")],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_refunds(inbox, D2, [])
+    write_day(inbox, D3)
+    out = run_pipeline(tmp_path)
+    assert [values(r) for r in metrics(out)] == [("ES", "1", "10.00", "0.00", "10.00", "0", D1)]
+    assert rejected(out) == []
+
+
+def _sample_inbox(tmp_path):
+    inbox = tmp_path / "inbox"
+    write_day(inbox, D1,
+              orders=[order("K-2", "C2", "2026-09-01T09:00:00Z", "7.35", currency="GBP"),
+                      order("K-1", "C1", "2026-09-01T08:00:00Z", "10.00")],
+              payments=[payment("K-1"), payment("K-2")],
+              customers=[customer("C2", "GB"), customer("C1")])
+    write_refunds(inbox, D2, [refund("R-9", "K-404", "2026-09-02T10:00:00Z", 1.0),
+                              refund("R-1", "K-1", "2026-09-02T10:00:00Z", 2.5)])
+    return inbox
+
+
+NEW_OUTPUTS = ["daily_customer_metrics.csv", "rejected.csv", "quality_report.json"]
+
+
+def test_outputs_are_deterministic(tmp_path):
+    """R16: dos ejecuciones dan los mismos bytes; formato de §3.4."""
+    inbox = _sample_inbox(tmp_path)
+    run(inbox, REFERENCE, tmp_path / "a")
+    run(inbox, REFERENCE, tmp_path / "b")
+    for name in NEW_OUTPUTS:
+        a = (tmp_path / "a" / name).read_bytes()
+        assert a == (tmp_path / "b" / name).read_bytes(), name
+        assert b"\r" not in a and not a.startswith(b"\xef\xbb\xbf"), name
+    report = json.loads((tmp_path / "a" / "quality_report.json").read_text(encoding="utf-8"))
+    assert [c["name"] for c in report["checks"]] == [
+        "net_equals_gross_minus_refunded", "refunds_within_order_total", "unique_keys_and_orders"]
+    assert (tmp_path / "a" / "quality_report.json").read_text(encoding="utf-8").endswith("}\n")
+
+
+def _tree_hash(folder):
+    digest = hashlib.sha256()
+    for path in sorted(p for p in Path(folder).rglob("*") if p.is_file()):
+        digest.update(path.relative_to(folder).as_posix().encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def test_inbox_is_not_modified(tmp_path):
+    """El pipeline solo escribe en --out (spec §3)."""
+    inbox = _sample_inbox(tmp_path)
+    before = _tree_hash(inbox)
+    out = run_pipeline(tmp_path)
+    assert _tree_hash(inbox) == before
+    for name in NEW_OUTPUTS:
+        assert (out / name).exists(), name
