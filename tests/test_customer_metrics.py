@@ -423,3 +423,138 @@ def test_inbox_is_not_modified(tmp_path):
     assert _tree_hash(inbox) == before
     for name in NEW_OUTPUTS:
         assert (out / name).exists(), name
+
+
+# --- KIV-102: dos formatos de refunds.json (docs/specs/KIV-102/spec.md) ---------
+
+def refund_v2(rid, oid, at, amount, currency="EUR", reason=None):
+    """Formato nuevo: refund_amount en lugar de amount, y reason (texto o null)."""
+    return {"refund_id": rid, "order_id": oid, "refunded_at": at, "refund_amount": amount,
+            "currency": currency, "reason": reason}
+
+
+def rejected_details(out):
+    return {(r["record_id"], r["inbox_day"]): (r["reason"], r["detail"])
+            for r in read_csv(out / "rejected.csv")}
+
+
+def _one_sale(inbox, amount="10.00", currency="EUR", country="ES"):
+    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-01T08:00:00Z", amount, currency)],
+              payments=[payment("K-1")], customers=[customer("C1", country)])
+
+
+def test_new_format_refund_is_accepted(tmp_path):
+    """R19, R20: refund_amount se usa como importe y se convierte a EUR igual que amount."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox, "100.00", "USD", "US")
+    write_refunds(inbox, D2, [refund_v2("R-1", "K-1", "2026-09-02T10:00:00Z", 36.65, "USD",
+                                        "talla incorrecta")])
+    out = run_pipeline(tmp_path)
+    # 36.65 USD × 0.92 = 33.718 → 33.72
+    assert values(metrics_by_key(out)[(D2, "C1")]) == ("US", "0", "0.00", "33.72", "-33.72", "1", D1)
+    assert rejected(out) == []
+
+
+def test_new_format_reason_null_is_accepted(tmp_path):
+    """R20: reason null no invalida la devolución."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, [refund_v2("R-1", "K-1", "2026-09-01T10:00:00Z", 3.0, reason=None)])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "3.00", "7.00", "1", D1)
+    assert rejected(out) == []
+
+
+def test_mixed_formats_in_one_file(tmp_path):
+    """R19: el formato se detecta por registro; un fichero puede mezclar los dos."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 1.0),
+                              refund_v2("R-2", "K-1", "2026-09-01T11:00:00Z", 2.0, reason="x")])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "3.00", "7.00", "2", D1)
+    assert rejected(out) == []
+
+
+def test_same_refund_in_both_formats_is_one_refund(tmp_path):
+    """R9: la misma devolución en los dos formatos es una copia; con otro importe, un conflicto."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 2.0),
+                              refund("R-2", "K-1", "2026-09-01T11:00:00Z", 1.0)])
+    write_refunds(inbox, D2, [refund_v2("R-1", "K-1", "2026-09-01T10:00:00Z", 2.0,
+                                        reason="talla incorrecta"),
+                              refund_v2("R-2", "K-1", "2026-09-01T11:00:00Z", 4.0)])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "2.00", "8.00", "1", D1)
+    assert rejected(out) == [("refunds", "R-1", D2, "duplicate_refund"),
+                             ("refunds", "R-2", D1, "conflicting_duplicate"),
+                             ("refunds", "R-2", D2, "conflicting_duplicate")]
+
+
+def test_reason_does_not_count_for_duplicates(tmp_path):
+    """R9: dos copias que solo difieren en reason son la misma devolución."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, [refund_v2("R-1", "K-1", "2026-09-01T10:00:00Z", 2.0, reason=None)])
+    write_refunds(inbox, D2, [refund_v2("R-1", "K-1", "2026-09-01T10:00:00Z", 2.0,
+                                        reason="producto defectuoso")])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "2.00", "8.00", "1", D1)
+    assert rejected(out) == [("refunds", "R-1", D2, "duplicate_refund")]
+
+
+def test_both_amount_fields_is_invalid_record(tmp_path):
+    """R8, R19: amount y refund_amount a la vez → invalid_record, aunque coincidan."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    both = {**refund("R-1", "K-1", "2026-09-01T10:00:00Z", 1.0), "refund_amount": 1.0}
+    write_refunds(inbox, D1, [both])
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "0.00", "10.00", "0", D1)
+    reason, detail = rejected_details(out)[("R-1", D1)]
+    assert reason == "invalid_record"
+    assert "amount y refund_amount" in detail, detail
+
+
+def test_missing_or_bad_amount_names_the_field(tmp_path):
+    """R8: sin importe, o refund_amount ≤ 0 → invalid_record; el detail nombra el campo."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    missing = {"refund_id": "R-1", "order_id": "K-1", "refunded_at": "2026-09-01T10:00:00Z",
+               "currency": "EUR", "reason": None}
+    write_refunds(inbox, D1, [missing,
+                              refund_v2("R-2", "K-1", "2026-09-01T10:00:00Z", -5.0),
+                              refund("R-3", "K-1", "2026-09-01T10:00:00Z", 0)])
+    out = run_pipeline(tmp_path)
+    details = rejected_details(out)
+    assert {k: v[0] for k, v in details.items()} == {
+        ("R-1", D1): "invalid_record", ("R-2", D1): "invalid_record",
+        ("R-3", D1): "invalid_record"}
+    assert "falta el importe" in details[("R-1", D1)][1], details
+    assert details[("R-2", D1)][1].split(": ", 1)[1].startswith("refund_amount "), details
+    assert details[("R-3", D1)][1].split(": ", 1)[1].startswith("amount "), details
+
+
+def test_reason_only_in_warehouse(tmp_path):
+    """R21: reason se guarda en raw_refunds de warehouse.db y no aparece en ningún CSV."""
+    import sqlite3
+
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01T10:00:00Z", 1.0),
+                              refund_v2("R-2", "K-1", "2026-09-01T11:00:00Z", 2.0, reason=None),
+                              refund_v2("R-3", "K-1", "2026-09-01T12:00:00Z", 3.0,
+                                        reason="cambio de opinión")])
+    out = run_pipeline(tmp_path)
+    conn = sqlite3.connect(out / "warehouse.db")
+    try:
+        stored = conn.execute(
+            "SELECT refund_id, amount, reason FROM raw_refunds ORDER BY refund_id").fetchall()
+    finally:
+        conn.close()
+    assert stored == [("R-1", "1.0", None), ("R-2", "2.0", None),
+                      ("R-3", "3.0", "cambio de opinión")]
+    for csv_file in out.glob("*.csv"):
+        assert "cambio de opinión" not in csv_file.read_text(encoding="utf-8"), csv_file.name
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "6.00", "4.00", "3", D1)

@@ -1,4 +1,4 @@
-"""Oráculo de KIV-101 (python tasks.py acceptance).
+"""Oráculo de KIV-101 y KIV-102 (python tasks.py acceptance).
 
 Comprueba los escenarios de docs/specs/KIV-101/spec.md §5 y §6:
 
@@ -9,6 +9,12 @@ Comprueba los escenarios de docs/specs/KIV-101/spec.md §5 y §6:
 4. Diferencial completo contra docs/specs/KIV-101/reference_calc.py sobre la misma copia.
 5. Escenarios sintéticos S1–S8, en carpetas temporales.
 6. E19: determinismo (SHA-256) y entrada sin cambios.
+
+Y los de docs/specs/KIV-102/spec.md §4 y §5:
+
+7. Copia aparte de los días 2026-09-01 .. 2026-09-10: E20–E25 (también E20–E24 sobre
+   reference_calc.py) y diferencial sobre esa copia.
+8. Escenarios sintéticos S9–S12.
 
 Imprime PASS/FAIL por escenario y sale con 0 solo si pasan todos. Es el único módulo
 de kivora/ que contiene ids de la muestra.
@@ -30,6 +36,8 @@ INBOX = ROOT / "data" / "inbox"
 REFERENCE = ROOT / "data" / "reference"
 REFERENCE_CALC = ROOT / "docs" / "specs" / "KIV-101" / "reference_calc.py"
 DAYS = [f"2026-09-0{d}" for d in range(1, 8)]
+# KIV-102 (docs/specs/KIV-102/spec.md §4): entregas 1 y 2, con los dos formatos de refunds.json.
+DAYS_KIV102 = DAYS + ["2026-09-08", "2026-09-09", "2026-09-10"]
 NEW_OUTPUTS = ["daily_customer_metrics.csv", "rejected.csv", "quality_report.json"]
 OLD_OUTPUTS = ["daily_sales.csv", "top_customers.csv", "warehouse.db"]
 
@@ -440,6 +448,179 @@ def synthetic(tmp):
     s8()
 
 
+# --- KIV-102: días 01–10 con los dos formatos (spec KIV-102 §4) --------------
+
+KIV102_ROWS = {
+    "E20": ["2026-09-08,C029,DE,0,0.00,10.00,-10.00,1,2026-09-07"],
+    "E23": ["2026-09-11,C031,ES,0,0.00,9.95,-9.95,1,2026-09-09"],
+}
+KIV102_ABSENT = {"E23": ["2026-09-10,C031"]}
+KIV102_REJECTED_IN = {
+    "E21": [("refunds", "R-1034", "2026-09-09", "order_not_found")],
+    "E22": [("refunds", "R-1035", "2026-09-09", "refund_exceeds_order")],
+}
+KIV102_NOT_REJECTED = {"E20": "R-1033", "E22": "R-1013"}
+E24_TOTALS = {"ventas": 213, "bruto": Decimal("25072.41"), "devuelto": Decimal("1576.04"),
+              "neto": Decimal("23496.37"), "filas": 186, "solo_devolucion": 22,
+              "neto_negativo": 24}
+E24_REJECTED = sorted(E18_REJECTED + [t for ts in KIV102_REJECTED_IN.values() for t in ts])
+
+
+def check_kiv102_scenarios(lines, rejected, label=""):
+    """E20–E24 sobre unas filas de métricas y unos rechazos (de la salida o de la referencia)."""
+    keyed = {",".join(line.split(",")[:2]): line for line in lines}
+    for sid in ["E20", "E21", "E22", "E23"]:
+        @scenario(f"{sid}{label}")
+        def check():
+            for expected in KIV102_ROWS.get(sid, []):
+                key = ",".join(expected.split(",")[:2])
+                assert keyed.get(key) == expected, f"{keyed.get(key)!r} != {expected!r}"
+            for key in KIV102_ABSENT.get(sid, []):
+                assert key not in keyed, f"no debería existir la fila {key}: {keyed[key]!r}"
+            for item in KIV102_REJECTED_IN.get(sid, []):
+                assert item in rejected, f"falta en rejected.csv: {item}"
+            if sid in KIV102_NOT_REJECTED:
+                bad = [r for r in rejected if r[1] == KIV102_NOT_REJECTED[sid]]
+                assert not bad, f"{KIV102_NOT_REJECTED[sid]} no debería estar en rejected.csv: {bad}"
+        check()
+
+    @scenario(f"E24{label}")
+    def e24():
+        got = totals(lines)
+        assert got == E24_TOTALS, f"totales {got} != {E24_TOTALS}"
+        assert rejected == E24_REJECTED, f"rechazos {rejected} != {E24_REJECTED}"
+    e24()
+
+
+def kiv102_real(tmp, run_01_07):
+    missing = [d for d in DAYS_KIV102 if not (INBOX / d).is_dir()]
+    if missing:
+        record("E20–E25 (KIV-102)", False, f"faltan en data/inbox/ los días {', '.join(missing)}")
+        return
+    inbox = tmp / "inbox_01_10"
+    for day in DAYS_KIV102:
+        shutil.copytree(INBOX / day, inbox / day)
+    out = tmp / "run_01_10"
+    result = run_kivora(inbox, out)
+
+    @scenario("ejecución 01–10")
+    def execution():
+        assert result.returncode == 0, f"código {result.returncode}: {result.stderr.strip()[-500:]}"
+        for name in NEW_OUTPUTS:
+            assert (out / name).exists(), f"falta {name}"
+    execution()
+    if not all((out / name).exists() for name in NEW_OUTPUTS):
+        return
+
+    lines, rejected = metric_lines(out), rejected_tuples(out)
+    check_kiv102_scenarios(lines, rejected)
+    try:
+        ref_lines = run_reference(inbox)
+        ref_rejected = reference_rejected(run_reference(inbox, "--summary"))
+    except AssertionError as exc:
+        record("E20–E24 [referencia]", False, str(exc))
+        ref_lines = ref_rejected = None
+    else:
+        check_kiv102_scenarios(ref_lines, ref_rejected, label=" [referencia]")
+
+    @scenario("E24 (controles)")
+    def e24_checks():
+        for check in quality(out)["checks"]:
+            assert check["passed"] is True and check["failed_records"] == 0, f"{check}"
+    e24_checks()
+
+    @scenario("E25")
+    def e25():
+        before = [line for line in metric_lines(run_01_07) if line[:10] <= "2026-09-07"]
+        after = [line for line in lines if line[:10] <= "2026-09-07"]
+        assert before == after, (f"cambian filas de 01–07: {sorted(set(before) ^ set(after))[:5]}")
+    e25()
+
+    @scenario("diferencial 01–10 con reference_calc.py")
+    def differential():
+        assert ref_lines is not None, "reference_calc.py no se pudo ejecutar"
+        assert lines == ref_lines, (
+            f"métricas distintas: solo en la salida {sorted(set(lines) - set(ref_lines))[:5]}, "
+            f"solo en la referencia {sorted(set(ref_lines) - set(lines))[:5]}")
+        assert rejected == ref_rejected, f"rechazos {rejected} != {ref_rejected}"
+    differential()
+
+
+# --- KIV-102: escenarios sintéticos (spec KIV-102 §5) ------------------------
+
+def rf2(rid, oid, at, amount, currency, reason=None):
+    return {"refund_id": rid, "order_id": oid, "refunded_at": at, "refund_amount": amount,
+            "currency": currency, "reason": reason}
+
+
+def kiv102_synthetic(tmp):
+    d1, d2 = "2026-09-01", "2026-09-02"
+    c1 = [["C1", "Cliente Uno", "ES", "2025-01-01"]]
+    sale = [("K-1", "C1", "2026-09-01T10:00:00Z", "EUR", "10.00")]
+    at = "2026-09-01T15:00:00Z"
+
+    def run_case(name, days):
+        inbox = tmp / name / "inbox"
+        for i, (day, refunds) in enumerate(days):
+            write_day(inbox, day, orders=sale if i == 0 else (), customers=c1 if i == 0 else (),
+                      refunds=refunds)
+        out = tmp / name / "out"
+        result = run_kivora(inbox, out)
+        assert result.returncode == 0 and (out / "rejected.csv").exists(), (
+            f"código {result.returncode}: {result.stderr.strip()[-300:]}")
+        return out
+
+    @scenario("S9")
+    def s9():
+        out = run_case("S9", [(d1, [rf("R-7", "K-1", at, 2.0, "EUR")]),
+                              (d2, [rf2("R-7", "K-1", at, 2.0, "EUR", "talla incorrecta")])])
+        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00,2.00,8.00,1,2026-09-01"], (
+            f"{metric_lines(out)}")
+        assert rejected_tuples(out) == [("refunds", "R-7", d2, "duplicate_refund")], (
+            f"{rejected_tuples(out)}")
+    s9()
+
+    @scenario("S10")
+    def s10():
+        both = {**rf("R-8", "K-1", at, 1.0, "EUR"), "refund_amount": 1.0}
+        out = run_case("S10", [(d1, [both])])
+        assert rejected_tuples(out) == [("refunds", "R-8", d1, "invalid_record")], (
+            f"{rejected_tuples(out)}")
+        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00,0.00,10.00,0,2026-09-01"]
+    s10()
+
+    @scenario("S11")
+    def s11():
+        none = {"refund_id": "R-9", "order_id": "K-1", "refunded_at": at, "currency": "EUR"}
+        out = run_case("S11", [(d1, [none])])
+        assert rejected_tuples(out) == [("refunds", "R-9", d1, "invalid_record")], (
+            f"{rejected_tuples(out)}")
+        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00,0.00,10.00,0,2026-09-01"]
+    s11()
+
+    @scenario("S12")
+    def s12():
+        import sqlite3
+        text = "cambio de opinión"
+        out = run_case("S12", [(d1, [rf("R-10", "K-1", at, 1.0, "EUR"),
+                                     rf2("R-11", "K-1", at, 2.0, "EUR", None),
+                                     rf2("R-12", "K-1", at, 3.0, "EUR", text)])])
+        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00,6.00,4.00,3,2026-09-01"], (
+            f"{metric_lines(out)}")
+        conn = sqlite3.connect(out / "warehouse.db")
+        try:
+            columns = [c[1] for c in conn.execute("PRAGMA table_info(raw_refunds)")]
+            assert "reason" in columns, f"raw_refunds sin columna reason: {columns}"
+            stored = conn.execute("SELECT refund_id, reason FROM raw_refunds "
+                                  "ORDER BY refund_id").fetchall()
+        finally:
+            conn.close()
+        assert stored == [("R-10", None), ("R-11", None), ("R-12", text)], f"{stored}"
+        for csv_file in out.glob("*.csv"):
+            assert text not in csv_file.read_text(encoding="utf-8"), f"reason en {csv_file.name}"
+    s12()
+
+
 # --- principal --------------------------------------------------------------
 
 def main():
@@ -461,6 +642,8 @@ def main():
         result1, result2 = run_kivora(inbox_copy, run1), run_kivora(inbox_copy, run2)
         check_outputs(run1, run2, result1, result2, copy_hash, inbox_copy, repo_inbox_hash)
         synthetic(tmp)
+        kiv102_real(tmp, run1)
+        kiv102_synthetic(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
