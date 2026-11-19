@@ -17,6 +17,21 @@
 | 7 | 2 | D4: qué va a rejected.csv | Yo, sobre la propuesta del agente | — | "No lo tiréis sin más" (KIV-101) |
 | 8 | 2 | D5: corregir daily\_sales queda fuera de alcance | Yo | Corregir ahora / documentar | KIV-101 no lo pide y el plazo es corto |
 | 9 | 2 | Tres controles de calidad en lugar de seis | Yo, al revisar la propuesta | 3 / 6 | Los dos del enunciado más la unicidad; el resto no suma |
+| 10 | 3 | Hook `PreToolUse` `protect_inputs.py` que bloquea las ediciones en `data/inbox/`, `data/reference/` y `deliveries/` | Yo, a partir del ejemplo de clase (`protect_inbox.py`) | Solo instrucción en CLAUDE.md / permisos / hook | La instrucción se puede ignorar; el hook es determinista y decide por la ruta normalizada (sección 2) |
+| 11 | 3 | `deny` de `tasks.py deliver`, `git push`, `git reset --hard`, `git rebase`, `rm -rf` y `Read(./.env)`; `allow` solo para lectura y verificación | Yo, en la petición de la fase 3 | allow / preguntar / deny | Comandos irreversibles o fuera de fase con prefijo fijo: el deny los bloquea siempre |
+| 12 | 3 | Los mismos `deny` también en PowerShell, más `Remove-Item -Recurse*` | El agente: avisó de que solo estaban en Bash, y añadió `Remove-Item -Recurse*` sin que se lo pidiera, explicando por qué. Yo lo acepté | Solo Bash / Bash y PowerShell | En este equipo el agente usa PowerShell, y `rm` en PowerShell es `Remove-Item`. En la fase 4 este deny bloqueó un borrado de una carpeta temporal (vuelta 11) |
+| 13 | 5 | KIV-102: opción A, aceptar los dos formatos y detectar el formato por las claves de cada registro (K1, K2) | Yo, sobre la recomendación de `impact.md` §5 | A / B solo el nuevo / C por fecha / D detener / E no hacer nada | B dejaba a 0,00 € el devuelto de 01–07 y hacía fallar 10 escenarios; C es frágil ante reenvíos; E pierde 311,85 € sin avisar |
+| 14 | 5 | K3: `reason` no cuenta al comparar duplicados (R9 sobre el registro normalizado) | Yo | Contar / no contar `reason` | La misma devolución en los dos formatos debe ser una copia, no un conflicto (riesgo 4.1 de `impact.md`) |
+| 15 | 5 | K4: con `amount` y `refund_amount` a la vez, o sin ninguno, es `invalid_record` aunque coincidan | Yo | Adivinar el importe / rechazar | No se adivina cuál vale; queda trazado en `rejected.csv` |
+| 16 | 5 | K5: un formato desconocido no detiene el pipeline (opción D descartada) | Yo | Detener / rechazar el registro | R1 no cambia: Finanzas no se queda sin cifras por un solo registro |
+| 17 | 5 | K6: `reason` solo en `warehouse.db`, en ningún CSV | Yo | En las salidas / solo en la base | No cambia ninguna cifra y no se pierde información de la fuente |
+| 18 | 5 | K7: adaptar `reference_calc.py` para normalizar igual, en el mismo commit que la implementación | Yo. El agente proponía un commit aparte y ajustó la spec y el plan | Commit aparte / mismo commit | Con commits separados, el diferencial quedaría en rojo entre los dos |
+| 19 | 5 | K8–K10: `detail` claro en los ambiguos, `reason` ausente = `NULL`, control de rechazos masivos fuera de alcance | El agente (recomendación); yo le pedí aplicarla | — | El control cambiaría la estructura de `quality_report.json`, que es contrato de KIV-101 |
+| 20 | 6 | Hook `Stop` `require_acceptance.py`: no deja cerrar un turno con cambios en código, tests o specs y `acceptance` en rojo | Yo (ampliación opcional del apartado 5 de `assignment.md`) | Solo instrucción / hook | El criterio de terminado pasa a comprobarse siempre, no solo cuando el agente lo recuerda (sección 2) |
+| 21 | 6 | `AGENTS.md` breve que remite a `CLAUDE.md` | Yo (ampliación opcional) | — / `AGENTS.md` | Que otras herramientas de agentes tengan los comandos y lo que no se toca |
+| 22 | 6 | Revisión con un subagente `general-purpose` nuevo, sin el contexto de la sesión y en solo lectura, con un encargo escrito por mí | Yo | Subagente / `/code-review` / otra herramienta | Un revisor que no comparte los supuestos de quien escribió el código |
+| 23 | 6 | Sobre la revisión: aceptar H1, H2, H3 y H10–H13; H5 en parte; rechazar H4 y H6–H9 | Yo, con un motivo por hallazgo (`docs/review.md`) | Aceptar / parcial / rechazar | Los rechazos se apoyan en garantías documentadas (`sources.md`, la plataforma) o en limitaciones ya documentadas (H4, D5) |
+| 24 | 6 | Añadir S13 y S14 al oráculo, comprobados sobre la salida y sobre la referencia, y poner las notas de las specs en el commit de código | El agente, sin que se lo pidiera; lo avisó al terminar | Solo tests de pytest / también oráculo | El fallo de H2 lo compartían pipeline y referencia: sin estos escenarios no quedaba probado que la referencia también estaba corregida |
 
 ## 2. Configuración del agente
 
@@ -104,30 +119,56 @@ Archivos: `.claude/settings.json` (permisos y registro de los hooks, compartido 
 | 17 | 5 | Tests y oráculo en rojo | 8 tests nuevos y `acceptance` ampliado a 09-01..09-10 (E20–E25, «[referencia]», diferencial 01–10, S9–S12) | Aprobé el commit en la petición de permiso | El rojo coincidió con el previsto en el plan | Commit `d1780d8`: `8 failed, 24 passed`; `55 PASS, 13 FAIL`. Pasan en rojo E25, S11 y el diferencial 01–10, porque pipeline y referencia compartían el fallo | — |
 | 18 | 5 | Implementación y oráculo | Normalización en `ingest.py`; R8 y R9 en `customer_metrics.py`; `reference_calc.py` adaptado sin importar `kivora/` | Pedí implementación y oráculo en el mismo commit (el agente había propuesto commits separados) | El agente ajustó K7 en la spec y el plan | Commit `ca68d77`: `32 passed`; `68 PASS, 0 FAIL` (los 50 de KIV-101 siguen); `check` OK; `run` 186 filas y 8 rechazos | — |
 | 19 | 5 | Documentación de KIV-102 | Respuesta del ticket a Finanzas, secciones 3–5 de esta memoria, `sources.md`, nota en la spec de KIV-101 y `CLAUDE.md` | Aprobé el commit en la petición de permiso | — | Commit de documentación; `test` y `acceptance` en verde | Tag `phase-5` (lo pongo yo) |
+| 20 | 6 | Paso A: hook `Stop` y `AGENTS.md` | `require_acceptance.py`, registro en `settings.json`, `AGENTS.md` y sección 2 de esta memoria | Pedí probar el hook de verdad y enseñar los tres códigos | Salida del propio hook: (a) 0, (b) 0, (c) 2 con 8 líneas `FAIL` tras un defecto temporal (`amount / rate`), deshecho después con `git diff` vacío. El agente vio que las citas `CLAUDE.md:24`, `:25`, `:29` y `:31-34` de la sección 2 estaban desfasadas y las corrigió sin que se lo pidiera; lo avisó. No había ninguna línea con `\` inicial que quitar | Commit `c230f99`; `32 passed`, `68 PASS, 0 FAIL`, `check` OK | — |
+| 21 | 6 | Paso B: revisión independiente | Mi primer mensaje llegó cortado a mitad del encargo. El agente no lanzó nada y pidió el texto completo | Reenvié las instrucciones y después el encargo literal | El agente lanzó un subagente nuevo, sin el contexto de la sesión y solo lectura, y trajo su informe sin filtrar: 13 hallazgos (1 alta, 4 media, 8 baja). Comprobé que no había modificado nada (`git status` vacío) | — | Decidir cada hallazgo |
+| 22 | 6 | Decidir los hallazgos | — | Decidí los 13, con motivo | 7 aceptados, H5 parcial, 5 rechazados | Commit `970da77` (`docs/review.md`) | Aplicarlos |
+| 23 | 6 | Aplicar H1, H2, H3 y H5 | Tests nuevos primero; luego `_content` y `_instant_key` en el pipeline, `akey`, `tkey` y `parse_float=Decimal` en la referencia, y S13 y S14 en el oráculo | Aprobé el commit | Salida de los tests: en rojo, `5 failed` (H1 y H2); los de H3 ya pasaban, porque comprueban un comportamiento correcto que nada vigilaba. Mutación: al volver a comparar como texto, S13 y S14 fallan, primero en la salida y luego en la referencia | Commit `d450965`: `40 passed`, `70 PASS, 0 FAIL` | — |
+| 24 | 6 | Documentación de la revisión (H5, H10–H13) | README reescrito, `CLAUDE.md`, `AGENTS.md`, `tasks.py`, nota de estado en la spec de KIV-101 y sección 2 de esta memoria | Aprobé el commit | El agente corrigió tres errores suyos antes del commit: una frase rota en el README, una afirmación sobre `top_customers` que el análisis no respaldaba (se ajustó a `docs/analysis.md:134`) y los CRLF que había introducido un script en la spec de KIV-102. Mantuvo el número de líneas de `CLAUDE.md` para no desfasar las citas | Commit `b3d2258`; `40 passed`, `check` OK, `70 PASS, 0 FAIL` | Completar la memoria |
+
+**Resumen del ciclo.**
+
+- **Vueltas.** La tabla recoge 24 vueltas reales, de la fase 1 a la 6. En tres no hice
+  correcciones (12, 16 y 19).
+- **Tipos de feedback.**
+  - Salida de `test` y `acceptance`: rojo esperado, verde, mutaciones y la tabla de T10
+    (vueltas 10–13, 17, 18, 20 y 23).
+  - Revisión de Ana con su tutor: los bloques de la fase 4 (vueltas 10–13).
+  - Cálculo independiente: mi contraste de las cifras en las fases 1 y 2 (vueltas 1, 6 y 7) y el
+    diferencial contra `reference_calc.py` en cada ejecución de `acceptance`.
+  - Revisión del subagente: fase 6 (vueltas 21–24).
+- **Criterio de terminado.**
+  - `test`, `check` y `acceptance` en verde (`40 passed`, `check` OK y `70 PASS, 0 FAIL` al cerrar).
+  - Cifras contrastadas con un cálculo independiente (E18, E24 y los diferenciales).
+  - Revisión independiente aplicada (`docs/review.md`).
+- **Auto mode.** El paso A de la fase 6 (vuelta 20) se ejecutó por error en auto mode, en lugar de
+  en modo manual (decisión 1). Las protecciones siguieron activas: auto mode no desactiva los
+  `deny` de `.claude/settings.json` ni los hooks. El commit `c230f99` solo contiene
+  `.claude/settings.json`, `.claude/hooks/require_acceptance.py`, `AGENTS.md` y
+  `docs/report.md`. El paso B y los siguientes ya se hicieron fuera de auto mode.
 
 ## 4. Trazabilidad
 
-Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con datos reales y S\* sintéticos, comprobados por `uv run python tasks.py acceptance`) → test de `tests/test_customer_metrics.py` → código. Resultado al cerrar KIV-101: `24 passed` y `50 PASS, 0 FAIL`. Con KIV-102 (tabla al final de esta sección): `uv run python tasks.py test` → `32 passed`; `uv run python tasks.py acceptance` → `68 PASS, 0 FAIL`. Las filas R8 y R9 de esta tabla las modifica KIV-102.
+Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con datos reales y S\* sintéticos, comprobados por `uv run python tasks.py acceptance`) → test de `tests/test_customer_metrics.py` → código. Resultado al cerrar KIV-101: `24 passed` y `50 PASS, 0 FAIL`. Con KIV-102 (tabla al final de esta sección): `uv run python tasks.py test` → `32 passed`; `uv run python tasks.py acceptance` → `68 PASS, 0 FAIL`. Tras la revisión (sección 6): `40 passed` y `70 PASS, 0 FAIL`. Las filas R8 y R9 de esta tabla las modifica KIV-102; R2, R9, R15 y R17 tienen tests de la revisión. Las líneas de código citadas son las actuales.
 
 | R | Qué exige | Escenarios | Tests (`tests/test_customer_metrics.py`) | Código |
 |---|---|---|---|---|
 | R1 | Leer todo `--inbox`; `refunds.json` ausente o `[]` = nada; JSON roto → error que nombra el fichero | S7, S8 | `test_malformed_refunds_json_raises_input_error` (:357), `test_day_without_refunds_or_empty_list` (:368) | `kivora/ingest.py:57`, `kivora/__main__.py:30` |
-| R2 | Última versión; desempate por carpeta y fila | E1, E2, E3, E4 | `test_dedup_exact_copies_and_versions` (:116), `test_latest_version_tie_breaks_by_folder_then_row` (:234) | `kivora/customer_metrics.py:90` |
-| R3 | Validación del pedido (`invalid_record`, `unknown_currency`) | S1, S2, S3 | `test_null_and_missing_values` (:139), `test_currency_mismatch_and_unknown_currency` (:297), `test_non_positive_amounts` (:314) | `kivora/customer_metrics.py:118` |
-| R4 | Venta = no cancelada y ≥ 1 pago `captured`; cuenta una vez | E3, E15, E16 | `test_dedup_exact_copies_and_versions` (:116), `test_no_duplicates_after_joins` (:215), `test_refund_of_order_that_is_not_a_sale` (:279) | `kivora/customer_metrics.py:84`, `:118` |
-| R5 | EUR con `Decimal`, medio hacia arriba, por registro | E2, E15, E17 | `test_net_amount` (:196) | `kivora/customer_metrics.py:54` |
-| R6 | Día en `Europe/Madrid` con horario de verano | E12, E13 | `test_madrid_date_with_daylight_saving` (:334, verano e invierno), `test_multiple_refunds_same_order` (:170) | `kivora/customer_metrics.py:41` |
-| R7 | País actual normalizado; `UNKNOWN`; la venta no se pierde | E5, S4 | `test_null_and_missing_values` (:139), `test_no_duplicates_after_joins` (:215) | `kivora/customer_metrics.py:76` |
-| R8 | `refund_id` vacío → `invalid_record` por aparición; validación de la devolución | S1, S2, S3 | `test_null_and_missing_values` (:139), `test_non_positive_amounts` (:314), `test_currency_mismatch_and_unknown_currency` (:297) | `kivora/customer_metrics.py:149`, `:193` |
-| R9 | Duplicados por `refund_id`: copia → `duplicate_refund`; distinto → `conflicting_duplicate` | E10, S5 | `test_duplicate_and_conflicting_refunds` (:263) | `kivora/customer_metrics.py:149` |
-| R10 | `order_not_found`, `order_not_sale`, `currency_mismatch` | E8, E11, S6 | `test_refund_without_order` (:186), `test_refund_of_order_that_is_not_a_sale` (:279), `test_currency_mismatch_and_unknown_currency` (:297) | `kivora/customer_metrics.py:193` |
-| R11 | Límite por pedido en su moneda; se rechaza entera la que lo supera | E6, E7, E9 | `test_partial_refund` (:159), `test_multiple_refunds_same_order` (:170), `test_refund_exceeds_order` (:249) | `kivora/customer_metrics.py:226` |
-| R12 | Una fila en `rejected.csv` por registro, con el primer motivo | E3, E8–E11, E16, E18 | todos los que comprueban `rejected(out)` (p. ej. :116, :186, :263, :279) | `kivora/customer_metrics.py:118`, `:149`, `:193`, `:226` |
-| R13 | Fila por (día, cliente) con venta o devolución; filas solo con devoluciones | E13, E14 | `test_multiple_refunds_same_order` (:170), `test_last_purchase_date_does_not_look_ahead` (:344) | `kivora/customer_metrics.py:254` |
-| R14 | Columnas de §3.1; neto puede ser negativo; `last_purchase_date` sin mirar al futuro | E6, E13, E14 | `test_net_amount` (:196), `test_last_purchase_date_does_not_look_ahead` (:344) | `kivora/customer_metrics.py:254` |
-| R15 | Los tres controles, en orden | E18 (controles), E2 y E15 (control 3), E9 (control 2) | `test_net_amount` (:196), `test_refund_exceeds_order` (:249), `test_no_duplicates_after_joins` (:215), `test_outputs_are_deterministic` (:395) | `kivora/customer_metrics.py:283` |
+| R2 | Última versión; desempate por carpeta y fila | E1, E2, E3, E4, S14 | `test_dedup_exact_copies_and_versions` (:116), `test_latest_version_tie_breaks_by_folder_then_row` (:234), `test_latest_version_compares_updated_at_as_instants` (:600, fracciones de segundo y desfase) | `kivora/customer_metrics.py:91` (`_instant_key`), `:101` |
+| R3 | Validación del pedido (`invalid_record`, `unknown_currency`) | S1, S2, S3 | `test_null_and_missing_values` (:139), `test_currency_mismatch_and_unknown_currency` (:297), `test_non_positive_amounts` (:314) | `kivora/customer_metrics.py:129` |
+| R4 | Venta = no cancelada y ≥ 1 pago `captured`; cuenta una vez | E3, E15, E16 | `test_dedup_exact_copies_and_versions` (:116), `test_no_duplicates_after_joins` (:215), `test_refund_of_order_that_is_not_a_sale` (:279) | `kivora/customer_metrics.py:85`, `:129` |
+| R5 | EUR con `Decimal`, medio hacia arriba, por registro | E2, E15, E17 | `test_net_amount` (:196) | `kivora/customer_metrics.py:55` |
+| R6 | Día en `Europe/Madrid` con horario de verano | E12, E13 | `test_madrid_date_with_daylight_saving` (:334, verano e invierno), `test_multiple_refunds_same_order` (:170) | `kivora/customer_metrics.py:42` |
+| R7 | País actual normalizado; `UNKNOWN`; la venta no se pierde | E5, S4 | `test_null_and_missing_values` (:139), `test_no_duplicates_after_joins` (:215) | `kivora/customer_metrics.py:77` |
+| R8 | `refund_id` vacío → `invalid_record` por aparición; validación de la devolución | S1, S2, S3 | `test_null_and_missing_values` (:139), `test_non_positive_amounts` (:314), `test_currency_mismatch_and_unknown_currency` (:297) | `kivora/customer_metrics.py:169`, `:213` |
+| R9 | Duplicados por `refund_id`: copia → `duplicate_refund`; distinto → `conflicting_duplicate` | E10, S5 | `test_duplicate_and_conflicting_refunds` (:263) | `kivora/customer_metrics.py:169` |
+| R10 | `order_not_found`, `order_not_sale`, `currency_mismatch` | E8, E11, S6 | `test_refund_without_order` (:186), `test_refund_of_order_that_is_not_a_sale` (:279), `test_currency_mismatch_and_unknown_currency` (:297) | `kivora/customer_metrics.py:213` |
+| R11 | Límite por pedido en su moneda; se rechaza entera la que lo supera | E6, E7, E9 | `test_partial_refund` (:159), `test_multiple_refunds_same_order` (:170), `test_refund_exceeds_order` (:249) | `kivora/customer_metrics.py:246` |
+| R12 | Una fila en `rejected.csv` por registro, con el primer motivo | E3, E8–E11, E16, E18 | todos los que comprueban `rejected(out)` (p. ej. :116, :186, :263, :279) | `kivora/customer_metrics.py:129`, `:169`, `:213`, `:246` |
+| R13 | Fila por (día, cliente) con venta o devolución; filas solo con devoluciones | E13, E14 | `test_multiple_refunds_same_order` (:170), `test_last_purchase_date_does_not_look_ahead` (:344) | `kivora/customer_metrics.py:274` |
+| R14 | Columnas de §3.1; neto puede ser negativo; `last_purchase_date` sin mirar al futuro | E6, E13, E14 | `test_net_amount` (:196), `test_last_purchase_date_does_not_look_ahead` (:344) | `kivora/customer_metrics.py:274` |
+| R15 | Los tres controles, en orden | E18 (controles), E2 y E15 (control 3), E9 (control 2) | `test_net_amount` (:196), `test_refund_exceeds_order` (:249), `test_no_duplicates_after_joins` (:215), `test_outputs_are_deterministic` (:395), `test_quality_checks_detect_bad_data` (:612, cada control en rojo) | `kivora/customer_metrics.py:303` |
 | R16 | Formato y determinismo byte a byte | E19 | `test_outputs_are_deterministic` (:395) | `kivora/outputs.py:36` |
-| R17 | Código 0 con entrada legible aunque haya rechazos | S1–S4 (conjunto), ejecución | — (los tests llaman a `run()`, no miran el código de salida) | `kivora/__main__.py:30` |
+| R17 | Código 0 con entrada legible aunque haya rechazos | S1–S4 (conjunto), ejecución | `test_failed_check_still_exits_with_zero` (:639, añadido tras la revisión: código 0 con un control en rojo) | `kivora/__main__.py:30`, `:34` |
 | R18 | Interfaz y salidas antiguas sin cambios | E19 | los 4 de `tests/test_pipeline.py`, sin modificar | `kivora/__main__.py`, `sql/` sin cambios |
 
 Los siete tests mínimos de `assignment.md` §4 son los de las líneas :116, :139, :159, :170, :186, :196 y :215.
@@ -151,10 +192,10 @@ Conclusión: `acceptance` no basta como única red de seguridad. Dos de los tres
 | R19 | Formato por las claves de cada registro: `amount`, `refund_amount`, las dos o ninguna | E20–E24, S9–S12 | `test_new_format_refund_is_accepted` (:446), `test_mixed_formats_in_one_file` (:468), `test_both_amount_fields_is_invalid_record` (:507) | `kivora/ingest.py:44` |
 | R20 | Registro normalizado; `reason` ausente o `null` = `NULL` | E20, S12 | `test_new_format_reason_null_is_accepted` (:458), `test_reason_only_in_warehouse` (:539) | `kivora/ingest.py:17`, `:44` |
 | R21 | `reason` solo en `warehouse.db` | S12 | `test_reason_only_in_warehouse` (:539) | `kivora/ingest.py:17`, `:21` |
-| R8 (mod.) | Dos importes o ninguno → `invalid_record`; el `detail` nombra el campo | S10, S11 | `test_both_amount_fields_is_invalid_record` (:507), `test_missing_or_bad_amount_names_the_field` (:520) | `kivora/customer_metrics.py:182-189` |
-| R9 (mod.) | Duplicados sobre el registro normalizado, sin `reason` | S9, E10 (sin cambios) | `test_same_refund_in_both_formats_is_one_refund` (:479), `test_reason_does_not_count_for_duplicates` (:495), `test_duplicate_and_conflicting_refunds` (:263, sin cambios) | `kivora/customer_metrics.py:24`, `:161` |
+| R8 (mod.) | Dos importes o ninguno → `invalid_record`; el `detail` nombra el campo | S10, S11 | `test_both_amount_fields_is_invalid_record` (:507), `test_missing_or_bad_amount_names_the_field` (:520) | `kivora/customer_metrics.py:202-209` |
+| R9 (mod.) | Duplicados sobre el registro normalizado, sin `reason` | S9, S13, E10 (sin cambios) | `test_same_refund_in_both_formats_is_one_refund` (:479), `test_reason_does_not_count_for_duplicates` (:495), `test_duplicate_and_conflicting_refunds` (:263, sin cambios), `test_same_amount_with_different_decimals_is_a_copy` (:574) y `test_different_amount_is_still_a_conflict` (:585), de la revisión (importe como decimal) | `kivora/customer_metrics.py:25`, `:160` (`_content`) |
 | — | Las cifras de 01–07 no cambian | E25 | — | — |
-| — | Oráculo con la misma normalización | E20–E24 «[referencia]», diferencial 01–10 | — | `docs/specs/KIV-101/reference_calc.py:27` (`ramt`), `:64`, `:76`, `:87` |
+| — | Oráculo con la misma normalización | E20–E24 «[referencia]», diferencial 01–10, S13 y S14 sobre la referencia | — | `docs/specs/KIV-101/reference_calc.py:31` (`ramt`), `:34` (`tkey`), `:38` (`akey`), `:75`, `:87`, `:98` |
 
 
 
@@ -208,7 +249,39 @@ Con los datos reales, en `daily_customer_metrics`:
 
 
 
-_(fase 6)_
+Detalle completo en [`docs/review.md`](review.md).
+
+**Quién y cómo.** Revisó un subagente `general-purpose` nuevo de Claude Code, sin el contexto de
+la sesión principal. Lo hizo en solo lectura, con un encargo escrito por mí: buscar código que no
+cumple la spec, reglas ajustadas a la muestra, riesgos de determinismo o de modificar la entrada,
+tests que pasarían con código roto y documentación desfasada, solo con evidencia. Con `test` y
+`acceptance` en verde (32 passed, 68 PASS), encontró 13 hallazgos: 1 de gravedad alta, 4 media y
+8 baja. No modificó nada (`git status` vacío). Intentó escribir un script en el scratchpad, no
+tuvo permiso y no lo reintentó.
+
+| Decisión | Hallazgos |
+|---|---|
+| Aceptados | H1 (R9 comparaba el importe como texto), H2 (R2 comparaba `updated_at` como texto), H3 (ningún test comprobaba que los controles pueden fallar, ni R17), H10–H13 (documentación) |
+| Parcial | H5: `sql/` en el hook `Stop`; lo de los cambios ya commiteados queda como limitación |
+| Rechazados | H4 (shell; limitación ya documentada), H6 y H7 (`sources.md` garantiza importes numéricos y fechas ISO con `Z`), H8 (estructura del inbox garantizada por la plataforma; mejora futura), H9 (D5 documentada; un `xfail` estricto haría fallar la suite) |
+
+**Qué se aplicó.**
+
+- **Código** (`d450965`): R9 compara el importe como decimal y R2 compara `updated_at` como
+  instante, en el pipeline y en `reference_calc.py`. Se añadieron tests de 2.0 frente a 2.00 y de
+  fracciones de segundo, tests directos de `quality_checks` y de R17, y los escenarios S13 y S14.
+  Resultado: `40 passed`, `70 PASS, 0 FAIL`.
+- **Documentación** (`b3d2258`).
+
+**Qué enseña.**
+
+- Los dos hallazgos más graves no los veía el oráculo:
+  - En H2, pipeline y referencia compartían el error.
+  - En H1, la muestra no traía el caso.
+
+  Un diferencial solo vale lo que valen la referencia y los datos con los que se ejecuta.
+- H3 era un caso de «test que pasaría con código roto»: la suite comprobaba que los controles
+  salen en verde, nunca que puedan salir en rojo.
 
 
 
@@ -216,5 +289,26 @@ _(fase 6)_
 
 
 
-_(fase 6)_
+- **Empezar antes.** Las fases 1 y 2 se hicieron el 2026-11-15. Las fases 3 a 6 se comprimieron
+  en una tarde, el 2026-11-19: los commits van de `b881b4b` (20:23) a `b3d2258` (22:11). Con más
+  margen, cada bloque habría tenido su propia ronda de revisión, en lugar de aprobar los commits
+  en la petición de permiso (vueltas 16, 17, 19, 23 y 24).
+- **Datos sintéticos desde el principio, sobre todo los que no están en la muestra.**
+  - T10 ya mostró que `acceptance` no detectaba dos de tres defectos, porque la muestra no los
+    ejercita (sección 4).
+  - La revisión encontró dos más del mismo tipo (H1 y H2).
+  - Fracciones de segundo, desfases horarios e importes escritos con distintos decimales
+    deberían haber estado en los escenarios de la spec de KIV-101 desde la fase 2, ejecutados
+    también sobre `reference_calc.py`.
+- **Revisar la especificación de KIV-102 en una ronda aparte.** La aprobé en la misma petición
+  en que pedí implementarla (vuelta 16). La ambigüedad de R9 («como vienen en el fichero» frente
+  a «decimales exactos») que causó H1 se habría visto leyendo la spec antes de escribir tests.
+- **Un hook también para los comandos de shell.** `protect_inputs.py` solo cubre las
+  herramientas de edición. Las escrituras desde Bash o PowerShell dependen de que yo revise cada
+  petición, y los `deny` por prefijo se pueden esquivar (H4). Un hook `PreToolUse` sobre
+  Bash y PowerShell que rechace rutas protegidas cerraría ese hueco, aunque reconocer rutas
+  dentro de un comando arbitrario nunca es infalible.
+- **Comprobar el modo antes de cada paso.** El paso A de la fase 6 se ejecutó en auto mode por
+  error (sección 3). Las protecciones lo cubrieron, pero se saltó el permiso archivo a archivo que
+  decidí en la fase 1.
 
