@@ -558,3 +558,101 @@ def test_reason_only_in_warehouse(tmp_path):
     for csv_file in out.glob("*.csv"):
         assert "cambio de opinión" not in csv_file.read_text(encoding="utf-8"), csv_file.name
     assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "6.00", "4.00", "3", D1)
+
+
+# --- revisión independiente (docs/review.md: H1, H2, H3) -------------------------
+
+REFUND_TEXT = ('[{{"refund_id": "R-1", "order_id": "K-1", "refunded_at": "2026-09-01T10:00:00Z", '
+               '"{key}": {amount}, "currency": "EUR"}}]')
+
+
+@pytest.mark.parametrize("second_key, second_amount", [
+    ("amount", "2.00"),          # mismo formato, otro número de decimales
+    ("refund_amount", "2.00"),   # los dos formatos (S13)
+    ("refund_amount", "2"),
+])
+def test_same_amount_with_different_decimals_is_a_copy(tmp_path, second_key, second_amount):
+    """H1 / KIV-102 R9: el importe se compara como decimal; 2.0, 2.00 y 2 son el mismo importe."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, REFUND_TEXT.format(key="amount", amount="2.0"))
+    write_refunds(inbox, D2, REFUND_TEXT.format(key=second_key, amount=second_amount))
+    out = run_pipeline(tmp_path)
+    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "1", "10.00", "2.00", "8.00", "1", D1)
+    assert rejected(out) == [("refunds", "R-1", D2, "duplicate_refund")]
+
+
+def test_different_amount_is_still_a_conflict(tmp_path):
+    """H1 / R9: comparar como decimal no iguala importes distintos (2.0 frente a 2.01)."""
+    inbox = tmp_path / "inbox"
+    _one_sale(inbox)
+    write_refunds(inbox, D1, REFUND_TEXT.format(key="amount", amount="2.0"))
+    write_refunds(inbox, D2, REFUND_TEXT.format(key="refund_amount", amount="2.01"))
+    out = run_pipeline(tmp_path)
+    assert rejected(out) == [("refunds", "R-1", D1, "conflicting_duplicate"),
+                             ("refunds", "R-1", D2, "conflicting_duplicate")]
+
+
+@pytest.mark.parametrize("newer, older", [
+    ("2026-09-01T10:00:00.500Z", "2026-09-01T10:00:00Z"),       # fracciones de segundo (S14)
+    ("2026-09-01T11:00:00Z", "2026-09-01T12:30:00+02:00"),      # desfase: 12:30+02 = 10:30Z
+])
+def test_latest_version_compares_updated_at_as_instants(tmp_path, newer, older):
+    """H2 / R2: updated_at se compara como instante, no como texto. La versión más nueva
+    llega en la carpeta anterior, para que el desempate por carpeta no la salve."""
+    inbox = tmp_path / "inbox"
+    created = "2026-09-01T08:00:00Z"
+    write_day(inbox, D1, orders=[order("K-1", "C1", created, "12.00", updated=newer)],
+              payments=[payment("K-1")], customers=[customer("C1")])
+    write_day(inbox, D2, orders=[order("K-1", "C1", created, "99.00", updated=older)])
+    rows = metrics_by_key(run_pipeline(tmp_path))
+    assert rows[(D1, "C1")]["gross_amount"] == "12.00"
+
+
+def test_quality_checks_detect_bad_data():
+    """H3 / R15: cada control cuenta los registros que lo incumplen y sale con passed false."""
+    from decimal import Decimal as Dec
+
+    from kivora.customer_metrics import quality_checks
+
+    def row(day, cid, gross, refunded, net):
+        return {"metric_date": day, "customer_id": cid, "gross_amount": Dec(gross),
+                "refunded_amount": Dec(refunded), "net_amount": Dec(net)}
+
+    rows = [row(D1, "C1", "10.00", "2.00", "8.00"),
+            row(D1, "C2", "10.00", "2.00", "9.00"),   # neto mal calculado
+            row(D1, "C2", "10.00", "0.00", "10.00"),  # clave repetida
+            row(D2, "C3", "5.00", "0.00", "5.00")]
+    sales = {"K-1": {"total": Dec("10.00")}, "K-2": {"total": Dec("5.00")}}
+    accepted = [{"order_id": "K-1", "amount": Dec("6.00")},
+                {"order_id": "K-1", "amount": Dec("5.00")},   # 11.00 > 10.00
+                {"order_id": "K-2", "amount": Dec("5.00")}]   # justo el total: no incumple
+    aggregated = ["K-1", "K-2", "K-2"]                          # K-2 agregado dos veces
+    checks = quality_checks(rows, aggregated, accepted, sales)
+    assert checks == [
+        {"name": "net_equals_gross_minus_refunded", "passed": False, "failed_records": 1},
+        {"name": "refunds_within_order_total", "passed": False, "failed_records": 1},
+        {"name": "unique_keys_and_orders", "passed": False, "failed_records": 2}]
+    assert all(c["passed"] for c in quality_checks(rows[:1], ["K-1"], accepted[:1], sales))
+
+
+def test_failed_check_still_exits_with_zero(tmp_path, monkeypatch, capsys):
+    """H3 / R17: con entrada legible, el pipeline termina con 0 aunque falle un control,
+    y el fallo queda en quality_report.json."""
+    from kivora import customer_metrics
+    from kivora.__main__ import main
+
+    def failing(*_):
+        return [{"name": name, "passed": name != "refunds_within_order_total",
+                 "failed_records": 3 if name == "refunds_within_order_total" else 0}
+                for name in customer_metrics.CHECK_NAMES]
+
+    monkeypatch.setattr(customer_metrics, "quality_checks", failing)
+    _one_sale(tmp_path / "inbox")
+    out = tmp_path / "out"
+    code = main(["--inbox", str(tmp_path / "inbox"), "--reference", str(REFERENCE),
+                 "--out", str(out)])
+    assert code == 0
+    assert quality(out)["refunds_within_order_total"] == {
+        "name": "refunds_within_order_total", "passed": False, "failed_records": 3}
+    assert "AVISO control refunds_within_order_total: 3" in capsys.readouterr().out

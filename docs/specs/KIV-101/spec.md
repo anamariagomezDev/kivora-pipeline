@@ -136,6 +136,12 @@ Generales: no dependen de ningún identificador, fecha ni moneda concretos de la
 - **R2.** De cada `order_id` se usa solo la última versión: mayor `updated_at`; si empata, la de la
   carpeta posterior y, dentro de ella, la fila posterior. Copias y versiones antiguas no se agregan
   ni se rechazan.
+
+  *Nota (2026-11-19, revisión independiente, `docs/review.md` H2, aprobada por Ana):* `updated_at`
+  se compara **como instante**, no como texto, para que las fracciones de segundo y los desfases
+  horarios ordenen bien (`…10:00:00.500Z` es posterior a `…10:00:00Z`). Un `updated_at` vacío o que
+  no es ISO 8601 con zona queda por debajo de cualquier fecha válida; si esa versión acaba siendo la
+  última, R3 la rechaza. Lo comprueban S14 y `tests/test_customer_metrics.py`.
 - **R3.** La última versión se valida (campos obligatorios no vacíos tras quitar espacios, fechas
   ISO 8601, `total_amount` numérico > 0, `status` válido, moneda en `fx_rates.csv` comparada en
   mayúsculas). Si falla, el pedido se rechaza con `invalid_record` o `unknown_currency`.
@@ -290,6 +296,7 @@ devoluciones sin `refund_id`, distintas entre sí: `refund_id` = `""` (K-1, 1.0 
 | S6 | Moneda distinta de la del pedido | `refunds,R-6,currency_mismatch` | R10 |
 | S7 | `refunds.json` que no es JSON válido | Código ≠ 0 y mensaje que nombra el fichero | R1 |
 | S8 | Día sin `refunds.json` o con `[]` | Mismo resultado que sin devoluciones ese día, código 0 | R1 |
+| S14 | Pedido K-1 (C1, EUR, `captured`): en `2026-09-01`, `updated_at` `2026-09-01T10:00:00.500Z` y 12.00; en `2026-09-02`, `updated_at` `2026-09-01T10:00:00Z` y 99.00 (añadido tras la revisión, H2). Se comprueba sobre la salida y sobre `reference_calc.py` | `2026-09-01,C1,ES,1,12.00,0.00,12.00,0,2026-09-01`; ningún rechazo | R2 |
 
 ## Aclaraciones
 

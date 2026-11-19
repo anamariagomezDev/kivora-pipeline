@@ -20,7 +20,8 @@ ORDER_REQUIRED = ["order_id", "customer_id", "created_at", "updated_at", "status
                   "currency", "total_amount"]
 ORDER_STATUSES = ("confirmed", "cancelled")
 REFUND_REQUIRED = ["order_id", "refunded_at", "currency"]
-# KIV-102 R9: what "same content" means. Not `reason`, not which key brought the amount.
+# KIV-102 R9: what "same content" means. Not `reason`, not which key brought the amount;
+# the amount compared as a decimal (`_content`).
 REFUND_CONTENT = ["refund_id", "order_id", "refunded_at", "amount", "currency"]
 
 
@@ -87,11 +88,21 @@ def captured_orders(payment_rows):
 
 # --- orders (R2, R3, R4) -----------------------------------------------------
 
+def _instant_key(value):
+    """R2 (docs/review.md, H2): updated_at compared as an instant, not as text, so that
+    fractions of a second and UTC offsets order correctly. An invalid value ranks below
+    every valid one; that version is rejected in R3 only if it ends up being the last."""
+    try:
+        return (1, parse_ts(value))
+    except ValueError:
+        return (0, text(value))
+
+
 def latest_orders(order_rows):
     """R2: per order_id, the greatest updated_at; ties -> later folder, then later row."""
     best = {}
     for row in order_rows:
-        key = (text(row["updated_at"]), row["_day"], int(row["_pos"]))
+        key = (_instant_key(row["updated_at"]), row["_day"], int(row["_pos"]))
         oid = text(row["order_id"])
         if oid not in best or key > best[oid][0]:
             best[oid] = (key, row)
@@ -146,6 +157,15 @@ def classify_orders(latest, fx, captured):
 
 # --- refunds (R8, R9, R10, R11) ----------------------------------------------
 
+def _content(row):
+    """KIV-102 R9: what is compared between appearances. The amount as a decimal
+    (docs/review.md, H1: 2.0, 2.00 and 2 are the same amount); if it is not a number,
+    as it came, so that it still differs from any valid amount."""
+    amount = to_decimal(row["amount"])
+    return tuple(amount if f == "amount" and amount is not None else row[f]
+                 for f in REFUND_CONTENT)
+
+
 def deduplicate_refunds(refund_rows):
     """R8 (empty refund_id) and R9 (same refund_id): (candidates, rejections)."""
     rejected, groups = [], defaultdict(list)
@@ -158,7 +178,7 @@ def deduplicate_refunds(refund_rows):
     candidates = []
     for rid in sorted(groups):
         rows = groups[rid]
-        if len({tuple(r[f] for f in REFUND_CONTENT) for r in rows}) > 1:
+        if len({_content(r) for r in rows}) > 1:
             rejected += [rejection("refunds", rid, "conflicting_duplicate", r,
                                    f"{len(rows)} apariciones con contenido distinto")
                          for r in rows]

@@ -4,7 +4,7 @@ Se registra en el evento Stop. Lee el JSON del evento por stdin y:
 
 - si `stop_hook_active` es true (el agente ya está continuando por este hook),
   sale con 0 para no entrar en bucle;
-- si `git status --porcelain` no muestra cambios en kivora/, tests/, tasks.py ni
+- si `git status --porcelain` no muestra cambios en kivora/, sql/, tests/, tasks.py ni
   docs/specs/, sale con 0 (no ralentiza las respuestas que no tocan código);
 - si los hay, ejecuta `uv run python tasks.py acceptance` en CLAUDE_PROJECT_DIR:
   si falla, escribe las líneas FAIL en stderr y sale con 2 (Claude Code impide la
@@ -17,7 +17,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-WATCHED = ("kivora/", "tests/", "tasks.py", "docs/specs/")
+WATCHED = ("kivora/", "sql/", "tests/", "tasks.py", "docs/specs/")
 
 
 def changed_paths(project_dir: Path) -> list[str]:

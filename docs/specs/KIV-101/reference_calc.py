@@ -5,6 +5,10 @@ Adaptado en KIV-102 (docs/specs/KIV-102/spec.md, K7): el importe de cada devoluc
 ninguna es invalid_record. R9 compara refund_id, order_id, refunded_at, importe y currency
 (no `reason`).
 
+Corregido tras la revisión independiente (docs/review.md, H1 y H2): R9 compara el importe como
+decimal exacto (2.0, 2.00 y 2 son el mismo importe; antes se leía como float) y R2 compara
+`updated_at` como instante, no como texto (fracciones de segundo y desfases horarios).
+
 Uso: uv run python -I docs/specs/KIV-101/reference_calc.py <inbox> <reference> [--summary | claves "AAAA-MM-DD,cliente"...]
 """
 import csv, json, sys
@@ -27,18 +31,25 @@ def dec(v):
 def ramt(r):  # KIV-102: importe de la devolución si trae exactamente una de las dos claves
     keys = [k for k in ("amount", "refund_amount") if k in r]
     return r[keys[0]] if len(keys) == 1 else None
+def tkey(s):  # R2 (H2): instante; sin zona o no ISO va por debajo de cualquier fecha válida
+    try: d = ts(s or "")
+    except ValueError: return (0, (s or "").strip())
+    return (1, d) if d.tzinfo is not None else (0, s.strip())
+def akey(v):  # R9 (H1): importe como decimal; si no es número, tal cual
+    d = dec(v) if v is not None and not isinstance(v, bool) else None
+    return ("num", d) if d is not None else ("raw", json.dumps(v, default=str))
 
 orders, customers, captured, refunds = {}, {}, set(), []
 for day in sorted(p for p in inbox.iterdir() if p.is_dir()):
     for i, r in enumerate(csv.DictReader(open(day / "orders.csv", encoding="utf-8-sig")) if (day / "orders.csv").exists() else []):
-        key = ((r.get("updated_at") or "").strip(), day.name, i)
+        key = (tkey(r.get("updated_at")), day.name, i)
         if r["order_id"] not in orders or key > orders[r["order_id"]][0]: orders[r["order_id"]] = (key, r, day.name)
     for r in csv.DictReader(open(day / "customers.csv", encoding="utf-8-sig")) if (day / "customers.csv").exists() else []:
         customers[r["customer_id"]] = r
     for r in csv.DictReader(open(day / "payments.csv", encoding="utf-8-sig")) if (day / "payments.csv").exists() else []:
         if (r.get("status") or "").strip() == "captured": captured.add(r["order_id"])
     if (day / "refunds.json").exists():
-        for i, r in enumerate(json.load(open(day / "refunds.json", encoding="utf-8"))): refunds.append((day.name, i, r))
+        for i, r in enumerate(json.load(open(day / "refunds.json", encoding="utf-8"), parse_float=Decimal)): refunds.append((day.name, i, r))
 
 rejected, sales = [], {}
 for oid, (_, o, day) in orders.items():
@@ -61,7 +72,7 @@ for day, i, r in refunds:
     byid[rid].append((day, i, r))
 cand = []
 for rid, occ in byid.items():
-    sig = lambda r: json.dumps([r.get("refund_id"), r.get("order_id"), r.get("refunded_at"), ramt(r), r.get("currency")])
+    sig = lambda r: (json.dumps([r.get("refund_id"), r.get("order_id"), r.get("refunded_at"), r.get("currency")], default=str), akey(ramt(r)))
     if len({sig(r) for _, _, r in occ}) > 1:
         rejected += [("refunds", rid, d, "conflicting_duplicate") for d, _, _ in occ]; continue
     for d, _, _ in occ[1:]: rejected.append(("refunds", rid, d, "duplicate_refund"))

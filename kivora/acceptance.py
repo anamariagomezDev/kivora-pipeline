@@ -16,6 +16,10 @@ Y los de docs/specs/KIV-102/spec.md §4 y §5:
    reference_calc.py) y diferencial sobre esa copia.
 8. Escenarios sintéticos S9–S12.
 
+Y los añadidos tras la revisión independiente (docs/review.md, H1 y H2):
+
+9. S13 (KIV-102 §5) y S14 (KIV-101 §6), sobre la salida y sobre reference_calc.py.
+
 Imprime PASS/FAIL por escenario y sale con 0 solo si pasan todos. Es el único módulo
 de kivora/ que contiene ids de la muestra.
 """
@@ -621,6 +625,53 @@ def kiv102_synthetic(tmp):
     s12()
 
 
+# --- revisión independiente: S13 (KIV-102 §5) y S14 (KIV-101 §6) -------------
+
+def review_synthetic(tmp):
+    """docs/review.md, H1 y H2. Cada escenario se comprueba sobre la salida **y** sobre
+    reference_calc.py: los dos compartían el error de H2, y la muestra no trae ninguno."""
+    d1, d2 = "2026-09-01", "2026-09-02"
+    c1 = [["C1", "Cliente Uno", "ES", "2025-01-01"]]
+    created = "2026-09-01T08:00:00Z"
+
+    def against_both(name, inbox, expected_lines, expected_rejected):
+        out = tmp / name / "out"
+        result = run_kivora(inbox, out)
+        assert result.returncode == 0, f"código {result.returncode}: {result.stderr.strip()[-300:]}"
+        assert metric_lines(out) == expected_lines, f"salida: {metric_lines(out)}"
+        assert rejected_tuples(out) == expected_rejected, f"salida: {rejected_tuples(out)}"
+        ref_lines = run_reference(inbox)
+        ref_rejected = reference_rejected(run_reference(inbox, "--summary"))
+        assert ref_lines == expected_lines, f"referencia: {ref_lines}"
+        assert ref_rejected == expected_rejected, f"referencia: {ref_rejected}"
+
+    @scenario("S13")
+    def s13():
+        inbox = tmp / "S13" / "inbox"
+        base = '"refund_id": "R-13", "order_id": "K-1", "refunded_at": "2026-09-01T15:00:00Z"'
+        write_day(inbox, d1, orders=[("K-1", "C1", created, "EUR", "10.00")], customers=c1,
+                  refunds=f'[{{{base}, "amount": 2.0, "currency": "EUR"}}]')
+        write_day(inbox, d2, refunds=f'[{{{base}, "refund_amount": 2.00, "currency": "EUR", '
+                                     f'"reason": "talla incorrecta"}}]')
+        against_both("S13", inbox, ["2026-09-01,C1,ES,1,10.00,2.00,8.00,1,2026-09-01"],
+                     [("refunds", "R-13", d2, "duplicate_refund")])
+    s13()
+
+    @scenario("S14")
+    def s14():
+        inbox = tmp / "S14" / "inbox"
+        write_day(inbox, d1, orders=[("K-1", "C1", created, "EUR", "12.00")], customers=c1)
+        write_day(inbox, d2)
+        # La versión más nueva (10:00:00.500) llega en la carpeta anterior; como texto,
+        # "…00.500Z" < "…00Z" y ganaría la antigua de 99.00.
+        write_csv(inbox / d1 / "orders.csv", ORDER_FIELDS,
+                  [["K-1", "C1", created, "2026-09-01T10:00:00.500Z", "confirmed", "EUR", "12.00"]])
+        write_csv(inbox / d2 / "orders.csv", ORDER_FIELDS,
+                  [["K-1", "C1", created, "2026-09-01T10:00:00Z", "confirmed", "EUR", "99.00"]])
+        against_both("S14", inbox, ["2026-09-01,C1,ES,1,12.00,0.00,12.00,0,2026-09-01"], [])
+    s14()
+
+
 # --- principal --------------------------------------------------------------
 
 def main():
@@ -644,6 +695,7 @@ def main():
         synthetic(tmp)
         kiv102_real(tmp, run1)
         kiv102_synthetic(tmp)
+        review_synthetic(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

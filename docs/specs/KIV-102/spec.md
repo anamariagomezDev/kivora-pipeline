@@ -79,6 +79,13 @@ antiguo, y las cifras ya entregadas a Finanzas (días 09-01 a 09-07) no cambian.
   difieran en `reason` o en una clave desconocida eran `conflicting_duplicate` y ahora son
   copias. Con los datos reales no hay ningún caso así (`impact.md` §1).
 
+  *Nota (2026-11-19, revisión independiente, `docs/review.md` H1, aprobada por Ana):* el importe
+  se compara **como decimal exacto**, no como texto: `2.0`, `2.00` y `2` son el mismo importe, y
+  `2.0` frente a `2.01` sigue siendo un conflicto. «Como vienen en el fichero» quiere decir sin
+  convertir de moneda ni redondear. Antes, el pipeline comparaba el texto y `reference_calc.py`
+  comparaba un float; con los datos reales no hay ningún caso así (los dos dan lo mismo en E18 y
+  E24). Lo comprueban S13 y `tests/test_customer_metrics.py`.
+
 ### Sin cambios que conviene recordar
 
 - R1: solo un JSON inválido detiene el pipeline (K5).
@@ -121,6 +128,7 @@ Se construyen en carpetas temporales, fuera del repositorio. Base: pedido K-1 (C
 | S10 | R-8 con `amount` 1.0 **y** `refund_amount` 1.0 | `refunds,R-8,invalid_record`; no suma a K-1 | R8, R19 |
 | S11 | R-9 sin `amount` ni `refund_amount` | `refunds,R-9,invalid_record`; no suma a K-1 | R8, R19 |
 | S12 | Un solo fichero: R-10 con `amount` 1.0, R-11 con `refund_amount` 2.0 y `reason: null`, R-12 con `refund_amount` 3.0 y `reason` «cambio de opinión» | Las tres aceptadas: `2026-09-01,C1,ES,1,10.00,6.00,4.00,3,2026-09-01`. En `warehouse.db`, `raw_refunds.reason` vale `NULL`, `NULL` y «cambio de opinión»; ese texto no aparece en ningún CSV de salida | R19, R20, R21 |
+| S13 | 09-01: R-13 con `amount` 2.0. 09-02: R-13 con `refund_amount` 2.00 y `reason` «talla incorrecta» (añadido tras la revisión, H1). Se comprueba sobre la salida y sobre `reference_calc.py` | **Una** devolución: `2026-09-01,C1,ES,1,10.00,2.00,8.00,1,2026-09-01`; `refunds,R-13,duplicate_refund,2026-09-02` | R9 |
 
 ## 6. Fuera de alcance
 
