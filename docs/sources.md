@@ -59,18 +59,30 @@ devoluciones no traen el fichero (ticket `docs/tickets/KIV-101.md`).
 | `refund_id` | Identificador de la devolución |
 | `order_id` | Pedido al que corresponde |
 | `refunded_at` | Momento de la devolución (UTC, ISO 8601 con `Z`) |
-| `amount` | Importe devuelto (número), en la moneda del pedido |
+| `amount` | Importe devuelto (número), en la moneda del pedido. Solo en el formato antiguo |
+| `refund_amount` | Importe devuelto (número), en la moneda del pedido. Solo en el formato nuevo |
 | `currency` | Moneda (ISO 4217) |
+| `reason` | Motivo de la devolución, texto libre o `null`. Solo en el formato nuevo |
 
-Cómo lo trata el pipeline (`docs/specs/KIV-101/spec.md` R1, R8–R11):
+Desde el 2026-09-08 llega el formato nuevo (`docs/tickets/KIV-102.md`): `refund_amount` en lugar
+de `amount`, y `reason`. Los ficheros anteriores no se reenvían, así que conviven los dos
+formatos.
+
+Cómo lo trata el pipeline (`docs/specs/KIV-101/spec.md` R1, R8–R11, y
+`docs/specs/KIV-102/spec.md` R19–R21):
 
 - Fichero ausente o `[]`: cero devoluciones ese día. Si no es JSON válido, el pipeline se
-  detiene con código 2 y un mensaje que nombra el fichero (`kivora/ingest.py:39`,
+  detiene con código 2 y un mensaje que nombra el fichero (`kivora/ingest.py:57`,
   `kivora/__main__.py:30`).
+- El formato se detecta registro a registro, por la clave del importe (`kivora/ingest.py:44`).
+  Un registro con `amount` y `refund_amount`, o sin ninguno, va a `rejected.csv` como
+  `invalid_record`.
 - Los importes se leen como decimales exactos (`parse_float=Decimal`), nunca como `float`.
-- Puede llegar la misma devolución en dos días: la copia idéntica se descarta como
-  `duplicate_refund`; si el contenido difiere, todas sus apariciones se rechazan como
-  `conflicting_duplicate`.
+- Puede llegar la misma devolución en dos días, también en formatos distintos. Se compara
+  `refund_id`, `order_id`, `refunded_at`, importe y `currency` (no `reason`). La copia idéntica
+  se descarta como `duplicate_refund`; si el contenido difiere, todas sus apariciones se rechazan
+  como `conflicting_duplicate`.
+- `reason` se guarda solo en `warehouse.db` (`raw_refunds.reason`).
 - Cada devolución no usada va a `rejected.csv` con su motivo.
 
 ## `data/reference/fx_rates.csv`

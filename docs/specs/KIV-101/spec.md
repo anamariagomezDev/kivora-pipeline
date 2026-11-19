@@ -173,6 +173,10 @@ y por último el límite (R11).
   posición anterior) y cada copia se rechaza con `duplicate_refund`. Si el contenido difiere, se
   rechazan todas con `conflicting_duplicate` y ninguna pasa a R8. Dos devoluciones con distinto
   `refund_id` son siempre distintas.
+
+  *Nota (KIV-102):* R8 y R9 están modificados por `docs/specs/KIV-102/spec.md`. Aceptan los dos
+  formatos de `refunds.json` (`amount` o `refund_amount`) y comparan el registro normalizado, sin
+  `reason`.
 - **R10.** Una devolución cuyo pedido no existe se rechaza con `order_not_found`; si el pedido
   existe pero no es venta, con `order_not_sale`; si su moneda no es la del pedido, con
   `currency_mismatch`.

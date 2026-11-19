@@ -3,8 +3,9 @@
 Pipeline diario de ventas de Kivora, una tienda online, en Python y SQLite.
 
 - **Entrada:** `data/inbox/<día>/{orders,customers,payments}.csv` y, desde el 09-04, un
-  `refunds.json` opcional. Cada día trae solo registros nuevos o modificados. Las marcas de
-  tiempo vienen en UTC.
+  `refunds.json` opcional. Conviven dos formatos de `refunds.json`: `amount` hasta el 09-07 y
+  `refund_amount` + `reason` desde el 09-08 (KIV-102). Cada día trae solo registros nuevos o
+  modificados. Las marcas de tiempo vienen en UTC.
 - **Importes:** **no** vienen en EUR. Cada pedido trae su moneda y se convierte con
   `data/reference/fx_rates.csv`.
 - **Código:** la carga está en `kivora/` y las transformaciones SQL en `sql/`. KIV-101 se
