@@ -1,0 +1,1845 @@
+ ▐▛███▛█   Claude Code v2.1.328
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~\proyectos\kivora-pipeline
+
+
+> Fase 5 de assignment.md, ticket docs/tickets/KIV-102.md: refunds.json cambia  
+  de formato (amount → refund_amount, nuevo campo reason que puede ser null) y  
+  en data/inbox conviven los dos formatos. Responde en español.                 
+  Primero el impacto, sin tocar código: analiza qué partes de kivora/, tests/,  
+  tasks.py/acceptance, docs/specs/KIV-101/reference_calc.py y la documentación  
+  se ven afectadas, y qué pasa HOY ejecutando "uv run python tasks.py run" con  
+  los días 08-10 (cuántas devoluciones nuevas salen en rejected.csv y con qué   
+  reason, y cómo cambian las cifras). Demuéstralo con comandos.                 
+  Escribe docs/specs/KIV-102/impact.md con: componentes afectados               
+  (archivo:línea), comportamiento actual con los datos nuevos, riesgos (por     
+  ejemplo, un mismo refund_id en formato antiguo y nuevo que se tomaría como    
+  conflicting_duplicate), opciones (soportar ambos formatos, solo el nuevo...)  
+  con tu recomendación, y qué cifras de Finanzas cambian. Haz un commit SOLO    
+  con impact.md, mensaje en español y tu Co-Authored-By. No toques nada más.    
+
+● Empiezo por leer el ticket, la tarea y el código afectado.
+
+  Searched for 4 patterns, read 5 files, ran 2 shell commands (ctrl+o to expand)
+
+● Sigo leyendo: ya tengo el código de carga y cálculo; ahora miro cómo el
+  oráculo elige los días y luego ejecuto el pipeline.
+
+  Searched for 3 patterns, ran 2 shell commands (ctrl+o to expand)
+
+● Ahora ejecuto: línea base con los días 01–07 (copia en el scratchpad), el
+  pipeline real con 01–10, y los tres comandos de verificación.
+
+  Read 1 file, did not run 1 other call (ctrl+o to expand)
+  ⎿  $ S="C:/Users/ana/AppData/Local/Temp/claude/302bc7333b3ccc75/2247f559-ff79-4f18-9fb2-9efd77fd2b62/scratchpad"
+     rm -rf "$S/base" && mkdir -p "$S/base/inbox" && for d in 01 02 03 04 05 06 07; do cp -r data/inbox/2026-09-$d "$S/base/inbox/"; done…
+  ⎿  1 action not run · permission denied · rule from shared project settings
+     │ Reason: Permission to use Bash with command S="C:/Users/ana/AppData/Local/Temp/claude/302bc7333b3ccc75/2247f559-ff79-4f18-9fb2-9efd77fd2b62/scratchpad"
+
+● La llamada combinada fue rechazada (probablemente por el rm -rf). La divido en
+  pasos más simples, empezando por el comando que pides.
+
+  Ran 2 shell commands (ctrl+o to expand)
+
+● Las 15 devoluciones nuevas aparecen todas como invalid_record y el pipeline
+  termina con código 0 y los 3 controles en verde, así que el fallo pasa
+  inadvertido. Ahora calculo las cifras que faltan con un script en el
+  scratchpad, sin tocar el código ni el inbox. · summary
+
+  Made 2 scratchpad edits +76, ran 1 shell command (ctrl+o to expand)
+
+● Con el formato nuevo, entrarían 13 de las 15 devoluciones (311,85 EUR) sin
+  cambiar las cifras hasta el 09-07. Ahora reviso el estado de
+  test/check/acceptance y la respuesta de reference_calc.py. · summary
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Todo pasa en verde, pero se pierden 15 devoluciones y reference_calc.py
+  comparte el fallo, así que el diferencial no lo detecta. Voy a demostrar el
+  riesgo del conflicting_duplicate y confirmar el formato de cada fichero. 
+  · summary
+
+  Made 1 scratchpad edit +29, ran 1 shell command (ctrl+o to expand)
+
+● Tengo todas las pruebas. Miro dos detalles más (qué tablas van a warehouse.db
+  y los números de línea exactos) antes de escribir el documento.
+
+  Searched for 1 pattern, read 1 file, ran 2 shell commands · 1 failed (ctrl+o to expand)
+
+● Ya tengo todas las pruebas. Escribo docs/specs/KIV-102/impact.md.
+
+● Write(docs\specs\KIV-102\impact.md)
+  ⎿  Wrote 329 lines to docs\specs\KIV-102\impact.md
+       1 # KIV-102 · Análisis de impacto: nuevo formato de `refunds.json`
+       2 
+       3 Estado: **análisis, sin cambios de código.** Escrito antes de la
+          especificación y del plan
+       4 (`assignment.md:230-234`). Datos: `data/inbox/` con las entregas
+          1 y 2 (días 2026-09-01 a
+       5 2026-09-10), commit `37a937b`.
+       6 
+       7 ## 1. El cambio
+       8 
+     … +321 lines (ctrl+o to expand)
+
+● Antes de hacer el commit compruebo dos afirmaciones que aún no tienen prueba:
+  la sección de la spec donde están los controles y los escenarios que fallarían
+  con la opción B.
+
+  Made 1 scratchpad edit +22, ran 2 shell commands (ctrl+o to expand)
+
+● Lo he comprobado: con la opción B fallarían 10 escenarios, no 8 (también E8 y
+  E11). Corrijo el documento con lo que he medido.
+
+● Update(docs\specs\KIV-102\impact.md)
+  ⎿  Added 1 line, removed 1 line
+      240  | Opción | Qué supone | Efecto en las cifras | Valoración |
+      241  | --- | --- | --- | --- |
+      242  | **A. Aceptar los dos formatos, normalizando en la carga** |
+           `read_refunds` detecta el formato **por las claves de cada reg
+           istro** y produce un registro canónico (`amount` ← `amount` o
+           `refund_amount`; `reason` opcional, ausente = `null`). R9 comp
+           ara el registro canónico. Un registro con los dos campos de im
+           porte, o sin ninguno, va a `invalid_record` con un `detail` cl
+           aro | 13 devoluciones más (311,85 €); 01–07 sin cambios | **Re
+           comendada** |
+      243 -| B. Solo el formato nuevo | Se exige `refund_amount` | Los 32
+          - registros de 09-04..09-07 pasarían a `invalid_record`: el dev
+          -uelto de 01–07 caería de 1 264,19 € a 0,00 € y cambiarían cifr
+          -as ya entregadas a Finanzas. Fallarían E2, E6, E7, E9, E10, E1
+          -3, E14 y E18 | Descartada: los ficheros antiguos no se reenvía
+          -n |                                                           
+      243 +| B. Solo el formato nuevo | Se exige `refund_amount` | Los re
+          +gistros de 09-04..09-07 pasarían a `invalid_record`. En 01–07:
+          + devuelto 0,00 € (antes 1 264,19 €), neto 18 490,74 € y 115 fi
+          +las en lugar de 126. Cambiarían cifras ya entregadas a Finanza
+          +s y fallarían E2, E6–E11, E13, E14 y E18 (anexo, apartado A.4)
+          + | Descartada: los ficheros antiguos no se reenvían |         
+      244  | C. Formato según la fecha de la carpeta | Antiguo antes del
+           09-08, nuevo desde el 09-08 | Igual que A con los datos de hoy
+            | Frágil (riesgo 4.2) |
+      245  | D. Detener el pipeline ante un formato desconocido | `InputE
+           rror` si un registro no encaja en ningún formato | — | Complem
+           entaria de A, no alternativa. Cambia R1 (hoy solo se detiene c
+           on JSON inválido), así que habría que decidirlo |
+      246  | E. No hacer nada | — | −311,85 € de devoluciones desde el 09
+           -08, sin aviso | Descartada |
+
+● Update(docs\specs\KIV-102\impact.md)
+  ⎿  Added 1 line, removed 1 line
+      151 
+      152  | Archivo:línea | Impacto |
+      153  | --- | --- |
+      154 -| `tests/test_customer_metrics.py:44-46` | El helper `refund()
+          -` solo genera el formato antiguo y se usa unas 30 veces. Los 1
+          -9 tests siguen siendo válidos si se mantiene el formato antigu
+          -o. **No hay ningún test con `refund_amount`, `reason` ni forma
+          -tos mezclados** |                                             
+      154 +| `tests/test_customer_metrics.py:44-46` | Los helpers `refund
+          +()` y `write_refunds()` solo generan el formato antiguo (30 ap
+          +ariciones en el fichero). Los tests siguen siendo válidos si s
+          +e mantiene el formato antiguo. **No hay ningún test con `refun
+          +d_amount`, `reason` ni formatos mezclados** |                 
+      155  | `tests/test_pipeline.py` | No se ve afectado (no usa devoluc
+           iones) |
+      156  | `kivora/acceptance.py:32` | `DAYS` = 09-01..09-07: E1–E19 no
+            ven los días nuevos. Bien para no reescribir KIV-101 (`docs/s
+           pecs/KIV-101/plan.md:325`), pero hoy el oráculo no detecta nad
+           a de KIV-102 |
+      157  | `kivora/acceptance.py:307-309` | `rf()` de S1–S8 solo genera
+            el formato antiguo |
+
+● Update(docs\specs\KIV-102\impact.md)
+  ⎿  Added 11 lines
+      327  `kivora.customer_metrics.deduplicate_refunds`, sin modificar n
+           ingún archivo del repositorio. Las
+      328  claves de cada fichero salen de `json.loads` sobre `data/inbox
+           /*/refunds.json` y un `Counter`
+      329  por conjunto de claves.
+      330 +                                                              
+      331 +### A.4 Opción B simulada                                     
+      332 +                                                              
+      333 +Copia de los días 09-01..09-07 en `$TMP/optB/inbox` con `amoun
+          +t` renombrado (equivale a un                                  
+      334 +pipeline que solo acepta `refund_amount`). Se procesa con `pyt
+          +hon -m kivora` y sobre la salida                              
+      335 +se ejecutan `kivora.acceptance.check_literal_scenarios` y `tot
+          +als`:                                                         
+      336 +                                                              
+      337 +```                                                           
+      338 +{'ventas': 156, 'bruto': 18490.74, 'devuelto': 0.00, 'neto': 1
+          +8490.74, 'filas': 115, 'solo_devolucion': 0, 'neto_negativo': 
+          +0}                                                            
+      339 +FAIL: ['E2', 'E6', 'E7', 'E8', 'E9', 'E10', 'E11', 'E13', 'E14
+          +', 'E18']                                                     
+      340 +```                                                           
+
+● Compruebo que impact.md es lo único que ha cambiado y hago el commit.
+
+  Ran 2 shell commands (ctrl+o to expand)
+  ⎿  PostToolUse:PowerShell says: Tip: Run /ultrareview before you push to catch
+     bugs with a cloud-based multi-agent review — 3 free reviews left.
+
+● El commit no se hizo: PowerShell no le pasó el mensaje a -F -. Lo escribo en
+  un fichero del scratchpad y lo repito.
+
+  Made 1 scratchpad edit +11, ran 1 shell command (ctrl+o to expand)
+
+● He escrito docs/specs/KIV-102/impact.md y lo he subido en el commit 7c79eb9,
+  que solo contiene ese fichero, con el mensaje en español y tu Co-Authored-By.
+  No he cambiado nada más: el árbol de trabajo está limpio y las simulaciones se
+  hicieron con copias en el scratchpad.
+
+  Qué pasa hoy con uv run python tasks.py run
+  - Las 15 devoluciones nuevas (R-1032 … R-1046) salen en rejected.csv con
+    invalid_record y el detalle «amount no numérico o <= 0: None». En total hay
+    21 rechazos: los 6 de KIV-101 y estos 15.
+  - El fallo no avisa: la ejecución termina con código 0, los 3 controles pasan
+    y test, check y acceptance siguen en verde. acceptance no lo ve porque solo
+    usa los días 01–07. reference_calc.py tiene el mismo fallo (r["amount"] da
+    KeyError y lo cuenta como invalid_record), así que la comparación entre los
+    dos no puede detectarlo.
+  - Origen del problema: kivora/ingest.py:14 solo conoce el campo amount, y :55
+    deja None en silencio cuando falta. Ese None llega a
+    kivora/customer_metrics.py:179 y :225.
+
+  Cifras
+  - Lo que ya tiene Finanzas (días 01–07) no cambia. Lo he comparado fila a fila
+    y no hay ninguna diferencia.
+  - Del 08 al 11 faltan 13 devoluciones válidas por 311,85 €: el importe
+    devuelto sale a 0 y el neto total queda inflado (23 808,22 € en vez de 23
+    496,37 €). También faltan 11 filas cliente-día.
+  - Las otras 2 devoluciones nuevas se rechazarían de todas formas, pero hoy su
+    motivo real queda oculto: R-1034 es de un pedido que no existe y R-1035
+    supera el total de su pedido.
+
+  Riesgo principal: la regla de duplicados (R9) compara el JSON completo. Lo he
+  probado con datos sintéticos: la misma devolución en formato antiguo y nuevo
+  se rechaza dos veces como conflicting_duplicate y se pierde. En los datos
+  actuales no ocurre.
+
+  Recomendación: aceptar los dos formatos. Habría que detectar el formato por
+  las claves de cada registro y convertirlo al cargarlo, y comparar los
+  duplicados sobre ese registro convertido. He descartado aceptar solo el
+  formato nuevo con una simulación: en los días 01–07 el importe devuelto caería
+  a 0 y fallarían 10 escenarios (E2, E6–E11, E13, E14 y E18).
+
+  En la sección 5 del documento quedan cinco decisiones para la spec. La más
+  importante es si reason cuenta al comparar duplicados; propongo que no. Otra
+  es cómo adaptar reference_calc.py, que forma parte de la spec ya aprobada de
+  KIV-101.
+
+✻ Cooked for 5m 43s · done 21:12
+
+> git log --oneline -2                                                          
+
+  Ran 2 shell commands (ctrl+o to expand)
+● 7c79eb9 KIV-102: análisis de impacto del nuevo formato de refunds.json
+  37a937b data: entrega 2 (días 2026-09-08 a 2026-09-10) y ticket KIV-102
+
+  El commit del análisis (7c79eb9) va justo después del de la entrega 2. Todavía
+  no hay ningún commit de código, así que el historial deja ver que el análisis
+  se hizo antes de tocar nada, como pide la fase 5.
+
+✻ Crunched for 10s · done 21:12
+
+> Mis decisiones sobre la sección 5 de impact.md: opción A. reason NO cuenta al 
+  comparar duplicados (se compara el registro normalizado: refund_id,           
+  order_id, refunded_at, importe y currency). Un registro con amount y          
+  refund_amount, o sin ninguno, es invalid_record. No se aplica la opción D.    
+  reason no va a las salidas CSV, solo a warehouse.db. reference_calc.py se     
+  adapta para normalizar igual. Para cualquier otra decisión de la sección 5,   
+  aplica tu recomendación y dime cuál. Confirma y espera la segunda parte.      
+
+● Confirmado. Estas son las decisiones que aplicaré en la spec y el plan de
+  KIV-102.
+
+  Las que has tomado tú
+  1. Opción A: se aceptan los dos formatos. El formato se detecta por las claves
+     de cada registro, no por la fecha de la carpeta, y el importe se convierte
+     al cargarlo.
+  2. Duplicados (R9): se compara el registro normalizado, es decir refund_id,
+     order_id, refunded_at, importe y currency. reason no cuenta, así que una
+     copia antigua y una nueva de la misma devolución son la misma.
+  3. Registros ambiguos: si un registro trae amount y refund_amount a la vez, o
+     no trae ninguno, es invalid_record. Lo aplico aunque los dos importes
+     coincidan, porque así lo has dicho.
+  4. Opción D descartada: un registro con formato desconocido no detiene el
+     pipeline. R1 no cambia: solo se detiene con un JSON que no sea válido.
+  5. reason: se guarda solo en warehouse.db, como columna TEXT de raw_refunds.
+     No aparece en ningún CSV de salida.
+  6. reference_calc.py: se adapta para normalizar igual que el pipeline.
+
+  Las que aplico con mi recomendación
+  - Mensaje de los registros ambiguos: el detail de invalid_record dirá qué pasa
+    con el importe, por ejemplo «trae amount y refund_amount» o «falta
+    amount/refund_amount». Ya no dirá «no numérico: None».
+  - reason ausente: se guarda como NULL, igual que reason: null.
+  - Control de rechazos masivos (riesgo 4.3): queda fuera de KIV-102. Lo anoto
+    como pendiente en la spec, porque añadirlo cambiaría la estructura de
+    quality_report.json, que es parte del contrato de KIV-101.
+  - Cómo se adapta el oráculo:
+    - El cambio en reference_calc.py irá en su propio commit, con la
+      justificación en el mensaje y en la spec.
+    - Añadiré a acceptance escenarios sintéticos de KIV-102: formato nuevo,
+      reason: null, el mismo refund_id en los dos formatos en días distintos, un
+      registro con los dos importes y otro sin ninguno.
+    - Añadiré también un escenario sobre los días 08–10 con las cifras de la
+      sección 2.2 de impact.md: 13 aceptadas por 311,85 €, y R-1034 y R-1035
+      rechazadas con su motivo real.
+    - E1–E19 y S1–S8 no se tocan.
+
+  Espero la segunda parte.
+
+✻ Churned for 12s · done 21:16
+
+> Ahora, en commits separados (en español, con Co-Authored-By) y ejecutando     
+  test y acceptance tras cada uno:                                              
+  1. docs/specs/KIV-102/spec.md (solo lo que cambia: requisitos nuevos o        
+  modificados, escenarios con datos reales de 08-10 —R-1033 con reason null,    
+  R-1034 order_not_found, R-1035 refund_exceeds_order, R-1036 cambio de día en  
+  Madrid— y sintéticos: mismo refund_id en los dos formatos → una sola          
+  devolución, registro con los dos importes → invalid_record) y plan.md.        
+  Commit.                                                                       
+  2. Tests nuevos que fallen con el código actual y amplía acceptance con esos  
+  escenarios y el diferencial sobre los días 01-10. Commit en rojo y enséñame   
+  qué falla.                                                                    
+  3. Implementación y adaptación de reference_calc.py. Commit en verde: los 24  
+  tests anteriores y los 50 PASS de KIV-101 deben seguir pasando.               
+  4. Respuesta en docs/tickets/KIV-102.md para Finanzas (qué cambia en sus      
+  cifras), sección 5 de docs/report.md (cambio de esquema: estrategia y         
+  justificación) y una fila por vuelta en la sección 3. Commit. Sin push ni     
+  tag.                                                                          
+
+● Empiezo por la estructura de la spec y el plan de KIV-101 y por
+  docs/report.md, para seguir el mismo formato.
+
+  Read 4 files (ctrl+o to expand)
+
+● Tengo el contexto. Antes de escribir la spec saco de la simulación las cifras
+  exactas de los escenarios con datos reales.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Ya tengo los datos. Escribo docs/specs/KIV-102/spec.md con solo lo que cambia.
+
+● Write(docs\specs\KIV-102\spec.md)
+  ⎿  Wrote 127 lines to docs\specs\KIV-102\spec.md
+       1 # KIV-102 · Especificación: dos formatos de `refunds.json`
+       2 
+       3 Estado: **aprobada** (decisiones de Ana sobre la sección 5 de `d
+         ocs/specs/KIV-102/impact.md`).
+       4 Esta especificación recoge **solo lo que cambia** respecto a `do
+         cs/specs/KIV-101/spec.md`. Todo lo
+       5 que no se nombra aquí (R1–R7, R10–R18, salidas, prioridades de `
+         rejected.csv`, controles de
+       6 calidad, E1–E19 y S1–S8) sigue igual.
+       7 
+     … +120 lines (ctrl+o to expand)
+
+● Update(docs\specs\KIV-102\spec.md)
+  ⎿  Added 3 lines, removed 1 line
+      1  # KIV-102 · Especificación: dos formatos de `refunds.json`
+      2 
+      3 -Estado: **aprobada** (decisiones de Ana sobre la sección 5 de `d
+        -ocs/specs/KIV-102/impact.md`).                                  
+      3 +Estado: **aprobada.** Las decisiones son de Ana, sobre la secció
+        +n 5 de                                                          
+      4 +`docs/specs/KIV-102/impact.md`. El 2026-11-19 pidió escribir est
+        +a especificación e implementarla                                
+      5 +en la misma petición.                                           
+      6  Esta especificación recoge **solo lo que cambia** respecto a `do
+         cs/specs/KIV-101/spec.md`. Todo lo
+      7  que no se nombra aquí (R1–R7, R10–R18, salidas, prioridades de `
+         rejected.csv`, controles de
+      8  calidad, E1–E19 y S1–S8) sigue igual.
+
+● Write(docs\specs\KIV-102\plan.md)
+  ⎿  Wrote 92 lines to docs\specs\KIV-102\plan.md
+       1 # KIV-102 · Plan de implementación
+       2 
+       3 Especificación: `docs/specs/KIV-102/spec.md`. Análisis previo: `
+         docs/specs/KIV-102/impact.md`.
+       4 Cada paso es un commit propio, con mensaje en español y `Co-Auth
+         ored-By`. Después de cada commit
+       5 se ejecutan `uv run python tasks.py test` y `uv run python tasks
+         .py acceptance`. No se hace push ni
+       6 tag.
+       7 
+     … +85 lines (ctrl+o to expand)
+
+● Commit 1 (spec y plan) y verificación.
+
+  Made 1 scratchpad edit +10, ran 1 shell command (ctrl+o to expand)
+
+● Commit 1 (513334f): 24 passed y 50 PASS. Ahora vienen los tests en rojo. Añado
+  la sección KIV-102 al final del fichero de tests, sin tocar los existentes.
+
+● Update(tests\test_customer_metrics.py)
+  ⎿  Added 135 lines
+      423      assert _tree_hash(inbox) == before
+      424      for name in NEW_OUTPUTS:
+      425          assert (out / name).exists(), name
+      426 +                                                              
+      427 +                                                              
+      428 +# --- KIV-102: dos formatos de refunds.json (docs/specs/KIV-10
+          +2/spec.md) ---------                                          
+      429 +                                                              
+      430 +def refund_v2(rid, oid, at, amount, currency="EUR", reason=Non
+          +e):                                                           
+      431 +    """Formato nuevo: refund_amount en lugar de amount, y reas
+          +on (texto o null)."""                                         
+      432 +    return {"refund_id": rid, "order_id": oid, "refunded_at": 
+          +at, "refund_amount": amount,                                  
+      433 +            "currency": currency, "reason": reason}           
+      434 +                                                              
+      435 +                                                              
+      436 +def rejected_details(out):                                    
+      437 +    return {(r["record_id"], r["inbox_day"]): (r["reason"], r[
+          +"detail"])                                                    
+      438 +            for r in read_csv(out / "rejected.csv")}          
+      439 +                                                              
+      440 +                                                              
+      441 +def _one_sale(inbox, amount="10.00", currency="EUR", country="
+          +ES"):                                                         
+      442 +    write_day(inbox, D1, orders=[order("K-1", "C1", "2026-09-0
+          +1T08:00:00Z", amount, currency)],                             
+      443 +              payments=[payment("K-1")], customers=[customer("
+          +C1", country)])                                               
+      444 +                                                              
+      445 +                                                              
+      446 +def test_new_format_refund_is_accepted(tmp_path):             
+      447 +    """R19, R20: refund_amount se usa como importe y se convie
+          +rte a EUR igual que amount."""                                
+      448 +    inbox = tmp_path / "inbox"                                
+      449 +    _one_sale(inbox, "100.00", "USD", "US")                   
+      450 +    write_refunds(inbox, D2, [refund_v2("R-1", "K-1", "2026-09
+          +-02T10:00:00Z", 36.65, "USD",                                 
+      451 +                                        "talla incorrecta")]) 
+      452 +    out = run_pipeline(tmp_path)                              
+      453 +    # 36.65 USD × 0.92 = 33.718 → 33.72                       
+      454 +    assert values(metrics_by_key(out)[(D2, "C1")]) == ("US", "
+          +0", "0.00", "33.72", "-33.72", "1", D1)                       
+      455 +    assert rejected(out) == []                                
+      456 +                                                              
+      457 +                                                              
+      458 +def test_new_format_reason_null_is_accepted(tmp_path):        
+      459 +    """R20: reason null no invalida la devolución."""         
+      460 +    inbox = tmp_path / "inbox"                                
+      461 +    _one_sale(inbox)                                          
+      462 +    write_refunds(inbox, D1, [refund_v2("R-1", "K-1", "2026-09
+          +-01T10:00:00Z", 3.0, reason=None)])                           
+      463 +    out = run_pipeline(tmp_path)                              
+      464 +    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "
+          +1", "10.00", "3.00", "7.00", "1", D1)                         
+      465 +    assert rejected(out) == []                                
+      466 +                                                              
+      467 +                                                              
+      468 +def test_mixed_formats_in_one_file(tmp_path):                 
+      469 +    """R19: el formato se detecta por registro; un fichero pue
+          +de mezclar los dos."""                                        
+      470 +    inbox = tmp_path / "inbox"                                
+      471 +    _one_sale(inbox)                                          
+      472 +    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01
+          +T10:00:00Z", 1.0),                                            
+      473 +                              refund_v2("R-2", "K-1", "2026-09
+          +-01T11:00:00Z", 2.0, reason="x")])                            
+      474 +    out = run_pipeline(tmp_path)                              
+      475 +    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "
+          +1", "10.00", "3.00", "7.00", "2", D1)                         
+      476 +    assert rejected(out) == []                                
+      477 +                                                              
+      478 +                                                              
+      479 +def test_same_refund_in_both_formats_is_one_refund(tmp_path): 
+      480 +    """R9: la misma devolución en los dos formatos es una copi
+          +a; con otro importe, un conflicto."""                         
+      481 +    inbox = tmp_path / "inbox"                                
+      482 +    _one_sale(inbox)                                          
+      483 +    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01
+          +T10:00:00Z", 2.0),                                            
+      484 +                              refund("R-2", "K-1", "2026-09-01
+          +T11:00:00Z", 1.0)])                                           
+      485 +    write_refunds(inbox, D2, [refund_v2("R-1", "K-1", "2026-09
+          +-01T10:00:00Z", 2.0,                                          
+      486 +                                        reason="talla incorrec
+          +ta"),                                                         
+      487 +                              refund_v2("R-2", "K-1", "2026-09
+          +-01T11:00:00Z", 4.0)])                                        
+      488 +    out = run_pipeline(tmp_path)                              
+      489 +    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "
+          +1", "10.00", "2.00", "8.00", "1", D1)                         
+      490 +    assert rejected(out) == [("refunds", "R-1", D2, "duplicate
+          +_refund"),                                                    
+      491 +                             ("refunds", "R-2", D1, "conflicti
+          +ng_duplicate"),                                               
+      492 +                             ("refunds", "R-2", D2, "conflicti
+          +ng_duplicate")]                                               
+      493 +                                                              
+      494 +                                                              
+      495 +def test_reason_does_not_count_for_duplicates(tmp_path):      
+      496 +    """R9: dos copias que solo difieren en reason son la misma
+          + devolución."""                                               
+      497 +    inbox = tmp_path / "inbox"                                
+      498 +    _one_sale(inbox)                                          
+      499 +    write_refunds(inbox, D1, [refund_v2("R-1", "K-1", "2026-09
+          +-01T10:00:00Z", 2.0, reason=None)])                           
+      500 +    write_refunds(inbox, D2, [refund_v2("R-1", "K-1", "2026-09
+          +-01T10:00:00Z", 2.0,                                          
+      501 +                                        reason="producto defec
+          +tuoso")])                                                     
+      502 +    out = run_pipeline(tmp_path)                              
+      503 +    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "
+          +1", "10.00", "2.00", "8.00", "1", D1)                         
+      504 +    assert rejected(out) == [("refunds", "R-1", D2, "duplicate
+          +_refund")]                                                    
+      505 +                                                              
+      506 +                                                              
+      507 +def test_both_amount_fields_is_invalid_record(tmp_path):      
+      508 +    """R8, R19: amount y refund_amount a la vez → invalid_reco
+          +rd, aunque coincidan."""                                      
+      509 +    inbox = tmp_path / "inbox"                                
+      510 +    _one_sale(inbox)                                          
+      511 +    both = {**refund("R-1", "K-1", "2026-09-01T10:00:00Z", 1.0
+          +), "refund_amount": 1.0}                                      
+      512 +    write_refunds(inbox, D1, [both])                          
+      513 +    out = run_pipeline(tmp_path)                              
+      514 +    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "
+          +1", "10.00", "0.00", "10.00", "0", D1)                        
+      515 +    reason, detail = rejected_details(out)[("R-1", D1)]       
+      516 +    assert reason == "invalid_record"                         
+      517 +    assert "amount y refund_amount" in detail, detail         
+      518 +                                                              
+      519 +                                                              
+      520 +def test_missing_or_bad_amount_names_the_field(tmp_path):     
+      521 +    """R8: sin importe, o refund_amount ≤ 0 → invalid_record; 
+          +el detail nombra el campo."""                                 
+      522 +    inbox = tmp_path / "inbox"                                
+      523 +    _one_sale(inbox)                                          
+      524 +    missing = {"refund_id": "R-1", "order_id": "K-1", "refunde
+          +d_at": "2026-09-01T10:00:00Z",                                
+      525 +               "currency": "EUR", "reason": None}             
+      526 +    write_refunds(inbox, D1, [missing,                        
+      527 +                              refund_v2("R-2", "K-1", "2026-09
+          +-01T10:00:00Z", -5.0),                                        
+      528 +                              refund("R-3", "K-1", "2026-09-01
+          +T10:00:00Z", 0)])                                             
+      529 +    out = run_pipeline(tmp_path)                              
+      530 +    details = rejected_details(out)                           
+      531 +    assert {k: v[0] for k, v in details.items()} == {         
+      532 +        ("R-1", D1): "invalid_record", ("R-2", D1): "invalid_r
+          +ecord",                                                       
+      533 +        ("R-3", D1): "invalid_record"}                        
+      534 +    assert "falta el importe" in details[("R-1", D1)][1], deta
+          +ils                                                           
+      535 +    assert details[("R-2", D1)][1].split(": ", 1)[1].startswit
+          +h("refund_amount "), details                                  
+      536 +    assert details[("R-3", D1)][1].split(": ", 1)[1].startswit
+          +h("amount "), details                                         
+      537 +                                                              
+      538 +                                                              
+      539 +def test_reason_only_in_warehouse(tmp_path):                  
+      540 +    """R21: reason se guarda en raw_refunds de warehouse.db y 
+          +no aparece en ningún CSV."""                                  
+      541 +    import sqlite3                                            
+      542 +                                                              
+      543 +    inbox = tmp_path / "inbox"                                
+      544 +    _one_sale(inbox)                                          
+      545 +    write_refunds(inbox, D1, [refund("R-1", "K-1", "2026-09-01
+          +T10:00:00Z", 1.0),                                            
+      546 +                              refund_v2("R-2", "K-1", "2026-09
+          +-01T11:00:00Z", 2.0, reason=None),                            
+      547 +                              refund_v2("R-3", "K-1", "2026-09
+          +-01T12:00:00Z", 3.0,                                          
+      548 +                                        reason="cambio de opin
+          +ión")])                                                       
+      549 +    out = run_pipeline(tmp_path)                              
+      550 +    conn = sqlite3.connect(out / "warehouse.db")              
+      551 +    try:                                                      
+      552 +        stored = conn.execute(                                
+      553 +            "SELECT refund_id, amount, reason FROM raw_refunds
+          + ORDER BY refund_id").fetchall()                              
+      554 +    finally:                                                  
+      555 +        conn.close()                                          
+      556 +    assert stored == [("R-1", "1.0", None), ("R-2", "2.0", Non
+          +e),                                                           
+      557 +                      ("R-3", "3.0", "cambio de opinión")]    
+      558 +    for csv_file in out.glob("*.csv"):                        
+      559 +        assert "cambio de opinión" not in csv_file.read_text(e
+          +ncoding="utf-8"), csv_file.name                               
+      560 +    assert values(metrics_by_key(out)[(D1, "C1")]) == ("ES", "
+          +1", "10.00", "6.00", "4.00", "3", D1)                         
+
+● Ahora amplío kivora/acceptance.py con los escenarios de KIV-102, sin tocar los
+  de KIV-101.
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 2 lines
+      30  REFERENCE = ROOT / "data" / "reference"
+      31  REFERENCE_CALC = ROOT / "docs" / "specs" / "KIV-101" / "referen
+          ce_calc.py"
+      32  DAYS = [f"2026-09-0{d}" for d in range(1, 8)]
+      33 +# KIV-102 (docs/specs/KIV-102/spec.md §4): entregas 1 y 2, con 
+         +los dos formatos de refunds.json.                              
+      34 +DAYS_KIV102 = DAYS + ["2026-09-08", "2026-09-09", "2026-09-10"]
+      35  NEW_OUTPUTS = ["daily_customer_metrics.csv", "rejected.csv", "q
+          uality_report.json"]
+      36  OLD_OUTPUTS = ["daily_sales.csv", "top_customers.csv", "warehou
+          se.db"]
+      37 
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 7 lines, removed 1 line
+      1 -"""Oráculo de KIV-101 (python tasks.py acceptance).             
+      1 +"""Oráculo de KIV-101 y KIV-102 (python tasks.py acceptance).   
+      2 
+      3  Comprueba los escenarios de docs/specs/KIV-101/spec.md §5 y §6:
+      4 
+     ...
+      10  5. Escenarios sintéticos S1–S8, en carpetas temporales.
+      11  6. E19: determinismo (SHA-256) y entrada sin cambios.
+      12 
+      13 +Y los de docs/specs/KIV-102/spec.md §4 y §5:                   
+      14 +                                                               
+      15 +7. Copia aparte de los días 2026-09-01 .. 2026-09-10: E20–E25 (
+         +también E20–E24 sobre                                          
+      16 +   reference_calc.py) y diferencial sobre esa copia.           
+      17 +8. Escenarios sintéticos S9–S12.                               
+      18 +                                                               
+      19  Imprime PASS/FAIL por escenario y sale con 0 solo si pasan todo
+          s. Es el único módulo
+      20  de kivora/ que contiene ids de la muestra.
+      21  """
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 169 lines
+      448      s8()
+      449 
+      450 
+      451 +# --- KIV-102: días 01–10 con los dos formatos (spec KIV-102 §
+          +4) --------------                                             
+      452 +                                                              
+      453 +KIV102_ROWS = {                                               
+      454 +    "E20": ["2026-09-08,C029,DE,0,0.00,10.00,-10.00,1,2026-09-
+          +07"],                                                         
+      455 +    "E23": ["2026-09-11,C031,ES,0,0.00,9.95,-9.95,1,2026-09-09
+          +"],                                                           
+      456 +}                                                             
+      457 +KIV102_ABSENT = {"E23": ["2026-09-10,C031"]}                  
+      458 +KIV102_REJECTED_IN = {                                        
+      459 +    "E21": [("refunds", "R-1034", "2026-09-09", "order_not_fou
+          +nd")],                                                        
+      460 +    "E22": [("refunds", "R-1035", "2026-09-09", "refund_exceed
+          +s_order")],                                                   
+      461 +}                                                             
+      462 +KIV102_NOT_REJECTED = {"E20": "R-1033", "E22": "R-1013"}      
+      463 +E24_TOTALS = {"ventas": 213, "bruto": Decimal("25072.41"), "de
+          +vuelto": Decimal("1576.04"),                                  
+      464 +              "neto": Decimal("23496.37"), "filas": 186, "solo
+          +_devolucion": 22,                                             
+      465 +              "neto_negativo": 24}                            
+      466 +E24_REJECTED = sorted(E18_REJECTED + [t for ts in KIV102_REJEC
+          +TED_IN.values() for t in ts])                                 
+      467 +                                                              
+      468 +                                                              
+      469 +def check_kiv102_scenarios(lines, rejected, label=""):        
+      470 +    """E20–E24 sobre unas filas de métricas y unos rechazos (d
+          +e la salida o de la referencia)."""                           
+      471 +    keyed = {",".join(line.split(",")[:2]): line for line in l
+          +ines}                                                         
+      472 +    for sid in ["E20", "E21", "E22", "E23"]:                  
+      473 +        @scenario(f"{sid}{label}")                            
+      474 +        def check():                                          
+      475 +            for expected in KIV102_ROWS.get(sid, []):         
+      476 +                key = ",".join(expected.split(",")[:2])       
+      477 +                assert keyed.get(key) == expected, f"{keyed.ge
+          +t(key)!r} != {expected!r}"                                    
+      478 +            for key in KIV102_ABSENT.get(sid, []):            
+      479 +                assert key not in keyed, f"no debería existir 
+          +la fila {key}: {keyed[key]!r}"                                
+      480 +            for item in KIV102_REJECTED_IN.get(sid, []):      
+      481 +                assert item in rejected, f"falta en rejected.c
+          +sv: {item}"                                                   
+      482 +            if sid in KIV102_NOT_REJECTED:                    
+      483 +                bad = [r for r in rejected if r[1] == KIV102_N
+          +OT_REJECTED[sid]]                                             
+      484 +                assert not bad, f"{KIV102_NOT_REJECTED[sid]} n
+          +o debería estar en rejected.csv: {bad}"                       
+      485 +        check()                                               
+      486 +                                                              
+      487 +    @scenario(f"E24{label}")                                  
+      488 +    def e24():                                                
+      489 +        got = totals(lines)                                   
+      490 +        assert got == E24_TOTALS, f"totales {got} != {E24_TOTA
+          +LS}"                                                          
+      491 +        assert rejected == E24_REJECTED, f"rechazos {rejected}
+          + != {E24_REJECTED}"                                           
+      492 +    e24()                                                     
+      493 +                                                              
+      494 +                                                              
+      495 +def kiv102_real(tmp, run_01_07):                              
+      496 +    missing = [d for d in DAYS_KIV102 if not (INBOX / d).is_di
+          +r()]                                                          
+      497 +    if missing:                                               
+      498 +        record("E20–E25 (KIV-102)", False, f"faltan en data/in
+          +box/ los días {', '.join(missing)}")                          
+      499 +        return                                                
+      500 +    inbox = tmp / "inbox_01_10"                               
+      501 +    for day in DAYS_KIV102:                                   
+      502 +        shutil.copytree(INBOX / day, inbox / day)             
+      503 +    out = tmp / "run_01_10"                                   
+      504 +    result = run_kivora(inbox, out)                           
+      505 +                                                              
+      506 +    @scenario("ejecución 01–10")                              
+      507 +    def execution():                                          
+      508 +        assert result.returncode == 0, f"código {result.return
+          +code}: {result.stderr.strip()[-500:]}"                        
+      509 +        for name in NEW_OUTPUTS:                              
+      510 +            assert (out / name).exists(), f"falta {name}"     
+      511 +    execution()                                               
+      512 +    if not all((out / name).exists() for name in NEW_OUTPUTS):
+      513 +        return                                                
+      514 +                                                              
+      515 +    lines, rejected = metric_lines(out), rejected_tuples(out) 
+      516 +    check_kiv102_scenarios(lines, rejected)                   
+      517 +    check_kiv102_scenarios(run_reference(inbox),              
+      518 +                           reference_rejected(run_reference(in
+          +box, "--summary")),                                           
+      519 +                           label=" [referencia]")             
+      520 +                                                              
+      521 +    @scenario("E24 (controles)")                              
+      522 +    def e24_checks():                                         
+      523 +        for check in quality(out)["checks"]:                  
+      524 +            assert check["passed"] is True and check["failed_r
+          +ecords"] == 0, f"{check}"                                     
+      525 +    e24_checks()                                              
+      526 +                                                              
+      527 +    @scenario("E25")                                          
+      528 +    def e25():                                                
+      529 +        before = [line for line in metric_lines(run_01_07) if 
+          +line[:10] <= "2026-09-07"]                                    
+      530 +        after = [line for line in lines if line[:10] <= "2026-
+          +09-07"]                                                       
+      531 +        assert before == after, (f"cambian filas de 01–07: {so
+          +rted(set(before) ^ set(after))[:5]}")                         
+      532 +    e25()                                                     
+      533 +                                                              
+      534 +    @scenario("diferencial 01–10 con reference_calc.py")      
+      535 +    def differential():                                       
+      536 +        expected = run_reference(inbox)                       
+      537 +        assert lines == expected, (                           
+      538 +            f"métricas distintas: solo en la salida {sorted(se
+          +t(lines) - set(expected))[:5]}, "                             
+      539 +            f"solo en la referencia {sorted(set(expected) - se
+          +t(lines))[:5]}")                                              
+      540 +        expected_rejected = reference_rejected(run_reference(i
+          +nbox, "--summary"))                                           
+      541 +        assert rejected == expected_rejected, f"rechazos {reje
+          +cted} != {expected_rejected}"                                 
+      542 +    differential()                                            
+      543 +                                                              
+      544 +                                                              
+      545 +# --- KIV-102: escenarios sintéticos (spec KIV-102 §5) -------
+          +-----------------                                             
+      546 +                                                              
+      547 +def rf2(rid, oid, at, amount, currency, reason=None):         
+      548 +    return {"refund_id": rid, "order_id": oid, "refunded_at": 
+          +at, "refund_amount": amount,                                  
+      549 +            "currency": currency, "reason": reason}           
+      550 +                                                              
+      551 +                                                              
+      552 +def kiv102_synthetic(tmp):                                    
+      553 +    d1, d2 = "2026-09-01", "2026-09-02"                       
+      554 +    c1 = [["C1", "Cliente Uno", "ES", "2025-01-01"]]          
+      555 +    sale = [("K-1", "C1", "2026-09-01T10:00:00Z", "EUR", "10.0
+          +0")]                                                          
+      556 +    at = "2026-09-01T15:00:00Z"                               
+      557 +                                                              
+      558 +    def run_case(name, days):                                 
+      559 +        inbox = tmp / name / "inbox"                          
+      560 +        for i, (day, refunds) in enumerate(days):             
+      561 +            write_day(inbox, day, orders=sale if i == 0 else (
+          +), customers=c1 if i == 0 else (),                            
+      562 +                      refunds=refunds)                        
+      563 +        out = tmp / name / "out"                              
+      564 +        result = run_kivora(inbox, out)                       
+      565 +        assert result.returncode == 0 and (out / "rejected.csv
+          +").exists(), (                                                
+      566 +            f"código {result.returncode}: {result.stderr.strip
+          +()[-300:]}")                                                  
+      567 +        return out                                            
+      568 +                                                              
+      569 +    @scenario("S9")                                           
+      570 +    def s9():                                                 
+      571 +        out = run_case("S9", [(d1, [rf("R-7", "K-1", at, 2.0, 
+          +"EUR")]),                                                     
+      572 +                              (d2, [rf2("R-7", "K-1", at, 2.0,
+          + "EUR", "talla incorrecta")])])                               
+      573 +        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00
+          +,2.00,8.00,1,2026-09-01"], (                                  
+      574 +            f"{metric_lines(out)}")                           
+      575 +        assert rejected_tuples(out) == [("refunds", "R-7", d2,
+          + "duplicate_refund")], (                                      
+      576 +            f"{rejected_tuples(out)}")                        
+      577 +    s9()                                                      
+      578 +                                                              
+      579 +    @scenario("S10")                                          
+      580 +    def s10():                                                
+      581 +        both = {**rf("R-8", "K-1", at, 1.0, "EUR"), "refund_am
+          +ount": 1.0}                                                   
+      582 +        out = run_case("S10", [(d1, [both])])                 
+      583 +        assert rejected_tuples(out) == [("refunds", "R-8", d1,
+          + "invalid_record")], (                                        
+      584 +            f"{rejected_tuples(out)}")                        
+      585 +        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00
+          +,0.00,10.00,0,2026-09-01"]                                    
+      586 +    s10()                                                     
+      587 +                                                              
+      588 +    @scenario("S11")                                          
+      589 +    def s11():                                                
+      590 +        none = {"refund_id": "R-9", "order_id": "K-1", "refund
+          +ed_at": at, "currency": "EUR"}                                
+      591 +        out = run_case("S11", [(d1, [none])])                 
+      592 +        assert rejected_tuples(out) == [("refunds", "R-9", d1,
+          + "invalid_record")], (                                        
+      593 +            f"{rejected_tuples(out)}")                        
+      594 +        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00
+          +,0.00,10.00,0,2026-09-01"]                                    
+      595 +    s11()                                                     
+      596 +                                                              
+      597 +    @scenario("S12")                                          
+      598 +    def s12():                                                
+      599 +        import sqlite3                                        
+      600 +        text = "cambio de opinión"                            
+      601 +        out = run_case("S12", [(d1, [rf("R-10", "K-1", at, 1.0
+          +, "EUR"),                                                     
+      602 +                                     rf2("R-11", "K-1", at, 2.
+          +0, "EUR", None),                                              
+      603 +                                     rf2("R-12", "K-1", at, 3.
+          +0, "EUR", text)])])                                           
+      604 +        assert metric_lines(out) == ["2026-09-01,C1,ES,1,10.00
+          +,6.00,4.00,3,2026-09-01"], (                                  
+      605 +            f"{metric_lines(out)}")                           
+      606 +        conn = sqlite3.connect(out / "warehouse.db")          
+      607 +        try:                                                  
+      608 +            columns = [c[1] for c in conn.execute("PRAGMA tabl
+          +e_info(raw_refunds)")]                                        
+      609 +            assert "reason" in columns, f"raw_refunds sin colu
+          +mna reason: {columns}"                                        
+      610 +            stored = conn.execute("SELECT refund_id, reason FR
+          +OM raw_refunds "                                              
+      611 +                                  "ORDER BY refund_id").fetcha
+          +ll()                                                          
+      612 +        finally:                                              
+      613 +            conn.close()                                      
+      614 +        assert stored == [("R-10", None), ("R-11", None), ("R-
+          +12", text)], f"{stored}"                                      
+      615 +        for csv_file in out.glob("*.csv"):                    
+      616 +            assert text not in csv_file.read_text(encoding="ut
+          +f-8"), f"reason en {csv_file.name}"                           
+      617 +    s12()                                                     
+      618 +                                                              
+      619 +                                                              
+      620  # --- principal ----------------------------------------------
+           ----------------
+      621 
+      622  def main():
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 2 lines
+      638          result1, result2 = run_kivora(inbox_copy, run1), run_k
+           ivora(inbox_copy, run2)
+      639          check_outputs(run1, run2, result1, result2, copy_hash,
+            inbox_copy, repo_inbox_hash)
+      640          synthetic(tmp)
+      641 +        kiv102_real(tmp, run1)                                
+      642 +        kiv102_synthetic(tmp)                                 
+      643      finally:
+      644          shutil.rmtree(tmp, ignore_errors=True)
+      645 
+
+● Corrijo una cosa: la llamada a la referencia fuera de un escenario podría
+  cortar el oráculo entero si reference_calc.py falla.
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 8 lines, removed 3 lines
+      514 
+      515      lines, rejected = metric_lines(out), rejected_tuples(out)
+      516      check_kiv102_scenarios(lines, rejected)
+      517 -    check_kiv102_scenarios(run_reference(inbox),              
+      518 -                           reference_rejected(run_reference(in
+          -box, "--summary")),                                           
+      519 -                           label=" [referencia]")             
+      517 +    try:                                                      
+      518 +        ref_lines = run_reference(inbox)                      
+      519 +        ref_rejected = reference_rejected(run_reference(inbox,
+          + "--summary"))                                                
+      520 +    except AssertionError as exc:                             
+      521 +        record("E20–E24 [referencia]", False, str(exc))       
+      522 +        ref_lines = ref_rejected = None                       
+      523 +    else:                                                     
+      524 +        check_kiv102_scenarios(ref_lines, ref_rejected, label=
+          +" [referencia]")                                              
+      525 
+      526      @scenario("E24 (controles)")
+      527      def e24_checks():
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 5 lines, removed 6 lines
+      538 
+      539      @scenario("diferencial 01–10 con reference_calc.py")
+      540      def differential():
+      541 -        expected = run_reference(inbox)                       
+      542 -        assert lines == expected, (                           
+      543 -            f"métricas distintas: solo en la salida {sorted(se
+          -t(lines) - set(expected))[:5]}, "                             
+      544 -            f"solo en la referencia {sorted(set(expected) - se
+          -t(lines))[:5]}")                                              
+      545 -        expected_rejected = reference_rejected(run_reference(i
+          -nbox, "--summary"))                                           
+      546 -        assert rejected == expected_rejected, f"rechazos {reje
+          -cted} != {expected_rejected}"                                 
+      541 +        assert ref_lines is not None, "reference_calc.py no se
+          + pudo ejecutar"                                               
+      542 +        assert lines == ref_lines, (                          
+      543 +            f"métricas distintas: solo en la salida {sorted(se
+          +t(lines) - set(ref_lines))[:5]}, "                            
+      544 +            f"solo en la referencia {sorted(set(ref_lines) - s
+          +et(lines))[:5]}")                                             
+      545 +        assert rejected == ref_rejected, f"rechazos {rejected}
+          + != {ref_rejected}"                                           
+      546      differential()
+      547 
+      548 
+
+  Ran 1 shell command · 1 failed (ctrl+o to expand)
+
+● El rojo coincide con lo que preveía el plan. Saco el motivo exacto de cada
+  test que falla para enseñártelo.
+
+  Ran 1 shell command · 1 failed (ctrl+o to expand)
+
+● Commit 2, en rojo como pediste.
+  Made 1 scratchpad edit +14, ran 1 shell command (ctrl+o to expand)
+
+● Commit 2 (d1780d8) en rojo. Ahora la implementación: primero la normalización
+  en ingest.py.
+
+● Update(kivora\ingest.py)
+  ⎿  Added 8 lines, removed 3 lines
+      11      "customers": ["customer_id", "name", "country", "signup_dat
+          e"],
+      12      "payments": ["payment_id", "order_id", "paid_at", "method",
+           "status", "amount"],
+      13  }
+      14 -REFUND_FIELDS = ["refund_id", "order_id", "refunded_at", "amoun
+         -t", "currency"]                                                
+      15 -# `_raw`: the whole JSON object, canonical, to compare duplicat
+         -es by content (R9).                                            
+      16 -REFUND_COLUMNS = REFUND_FIELDS + ["_raw"]                      
+      14 +# Normalised refund (KIV-102 R20): `amount` is the refund amoun
+         +t whatever key it came in                                      
+      15 +# (`amount` in the old format, `refund_amount` in the new one);
+         + `reason` only exists in the                                   
+      16 +# new format and is NULL when absent or null.                  
+      17 +REFUND_FIELDS = ["refund_id", "order_id", "refunded_at", "amoun
+         +t", "currency", "reason"]                                      
+      18 +AMOUNT_KEYS = ("amount", "refund_amount")                      
+      19 +# `_format` (KIV-102 R19): the amount key the object brings: am
+         +ount, refund_amount, both, none.                               
+      20 +# `_raw`: the whole JSON object, canonical, kept only as a trac
+         +e (R9 compares REFUND_CONTENT).                                
+      21 +REFUND_COLUMNS = REFUND_FIELDS + ["_format", "_raw"]           
+      22 
+      23 
+      24  class InputError(Exception):
+
+● Update(kivora\ingest.py)
+  ⎿  Added 13 lines
+      41      return json.dumps(value, sort_keys=True, default=str, ensur
+          e_ascii=False)
+      42 
+      43 
+      44 +def normalize_refund(item):                                    
+      45 +    """KIV-102 R19, R20: one JSON refund, in either format -> r
+         +ow of REFUND_COLUMNS.                                          
+      46 +    The format is decided by the keys of this object, never by 
+         +its day or file."""                                            
+      47 +    present = [key for key in AMOUNT_KEYS if key in item]      
+      48 +    if len(present) == 1:                                      
+      49 +        fmt, amount = present[0], item[present[0]]             
+      50 +    else:                                                      
+      51 +        fmt, amount = ("both" if present else "none"), None    
+      52 +    values = {**item, "amount": amount, "reason": item.get("rea
+         +son")}                                                         
+      53 +    raw = json.dumps(item, sort_keys=True, default=str, ensure_
+         +ascii=False)                                                   
+      54 +    return [_as_text(values.get(f)) for f in REFUND_FIELDS] + [
+         +fmt, raw]                                                      
+      55 +                                                               
+      56 +                                                               
+      57  def read_refunds(path):
+      58      """Rows of refunds.json: missing file or [] -> no rows; inv
+          alid JSON -> InputError."""
+      59      path = Path(path)
+
+● Update(kivora\ingest.py)
+  ⎿  Added 1 line, removed 2 lines
+      69      for pos, item in enumerate(data):
+      70          if not isinstance(item, dict):
+      71              raise InputError(f"{path}: el elemento {pos} no es 
+          un objeto")
+      72 -        raw = json.dumps(item, sort_keys=True, default=str, ens
+         -ure_ascii=False)                                               
+      73 -        rows.append([_as_text(item.get(f)) for f in REFUND_FIEL
+         -DS] + [raw])                                                   
+      72 +        rows.append(normalize_refund(item))                    
+      73      return rows
+      74 
+      75 
+
+● Ahora customer_metrics.py: la comparación de R9 y la validación del importe de
+  R8.
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 2 lines
+      19                    "currency", "total_amount"]
+      20  ORDER_STATUSES = ("confirmed", "cancelled")
+      21  REFUND_REQUIRED = ["order_id", "refunded_at", "currency"]
+      22 +# KIV-102 R9: what "same content" means. Not `reason`, not whic
+         +h key brought the amount.                                      
+      23 +REFUND_CONTENT = ["refund_id", "order_id", "refunded_at", "amou
+         +nt", "currency"]                                               
+      24 
+      25 
+      26  # --- values --------------------------------------------------
+          --------------
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 1 line, removed 1 line
+      157      candidates = []
+      158      for rid in sorted(groups):
+      159          rows = groups[rid]
+      160 -        if len({r["_raw"] for r in rows}) > 1:                
+      160 +        if len({tuple(r[f] for f in REFUND_CONTENT) for r in r
+          +ows}) > 1:                                                    
+      161              rejected += [rejection("refunds", rid, "conflictin
+           g_duplicate", r,
+      162                                     f"{len(rows)} apariciones c
+           on contenido distinto")
+      163                           for r in rows]
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 6 lines, removed 1 line
+      178          parse_ts(row["refunded_at"])
+      179      except ValueError:
+      180          return f"refunded_at no es ISO 8601 con zona: {row['re
+           funded_at']!r}"
+      181 +    # KIV-102 R8: the amount, whichever key it came in (`_form
+          +at`, R19).                                                    
+      182 +    if row["_format"] == "both":                              
+      183 +        return "trae amount y refund_amount a la vez"         
+      184 +    if row["_format"] == "none":                              
+      185 +        return "falta el importe (amount o refund_amount)"    
+      186      amount = to_decimal(row["amount"])
+      187      if amount is None or amount <= 0:
+      183 -        return f"amount no numérico o <= 0: {row['amount']!r}"
+      188 +        return f"{row['_format']} no numérico o <= 0: {row['am
+          +ount']!r}"                                                    
+      189      return None
+      190 
+      191 
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 2 lines, removed 1 line
+      2 
+      3  Pure functions, no I/O. Rows are dicts with the raw TEXT columns
+          of the raw_* tables
+      4  plus `_day` (inbox folder) and `_pos` (position in its file). Re
+         quirement ids (R*) are
+      5 -those of docs/specs/KIV-101/spec.md.                            
+      5 +those of docs/specs/KIV-101/spec.md; R8 and R9 as modified, and 
+        +R19–R21, by                                                     
+      6 +docs/specs/KIV-102/spec.md. Refund rows arrive already normalise
+        +d (kivora/ingest.py).                                           
+      7  """
+      8 
+      9  from bisect import bisect_right
+
+● Ahora adapto reference_calc.py por separado, sin importar nada de kivora/.
+
+● Update(docs\specs\KIV-101\reference_calc.py)
+  ⎿  Added 5 lines
+       1  """Cálculo de referencia de KIV-101 (solo lectura; ver spec.md 
+          §5 y Anexo A).
+       2 
+       3 +Adaptado en KIV-102 (docs/specs/KIV-102/spec.md, K7): el import
+         +e de cada devolución sale de la                                
+       4 +única clave que traiga, `amount` (formato antiguo) o `refund_am
+         +ount` (nuevo); con las dos o con                               
+       5 +ninguna es invalid_record. R9 compara refund_id, order_id, refu
+         +nded_at, importe y currency                                    
+       6 +(no `reason`).                                                 
+       7 +                                                               
+       8  Uso: uv run python -I docs/specs/KIV-101/reference_calc.py <inb
+          ox> <reference> [--summary | claves "AAAA-MM-DD,cliente"...]
+       9  """
+      10  import csv, json, sys
+
+● Update(docs\specs\KIV-101\reference_calc.py)
+  ⎿  Added 3 lines
+      24      try: d = Decimal(str(v).strip())
+      25      except (InvalidOperation, ValueError): return None
+      26      return d if d.is_finite() else None
+      27 +def ramt(r):  # KIV-102: importe de la devolución si trae exact
+         +amente una de las dos claves                                   
+      28 +    keys = [k for k in ("amount", "refund_amount") if k in r]  
+      29 +    return r[keys[0]] if len(keys) == 1 else None              
+      30 
+      31  orders, customers, captured, refunds = {}, {}, set(), []
+      32  for day in sorted(p for p in inbox.iterdir() if p.is_dir()):
+
+● Update(docs\specs\KIV-101\reference_calc.py)
+  ⎿  Added 1 line, removed 1 line
+      61      byid[rid].append((day, i, r))
+      62  cand = []
+      63  for rid, occ in byid.items():
+      64 -    sig = lambda r: json.dumps(r, sort_keys=True)              
+      64 +    sig = lambda r: json.dumps([r.get("refund_id"), r.get("orde
+         +r_id"), r.get("refunded_at"), ramt(r), r.get("currency")])     
+      65      if len({sig(r) for _, _, r in occ}) > 1:
+      66          rejected += [("refunds", rid, d, "conflicting_duplicate
+          ") for d, _, _ in occ]; continue
+      67      for d, _, _ in occ[1:]: rejected.append(("refunds", rid, d,
+           "duplicate_refund"))
+
+● Update(docs\specs\KIV-101\reference_calc.py)
+  ⎿  Added 1 line, removed 1 line
+      73      rid = str(r.get("refund_id", "")).strip()
+      74      try:
+      75          assert rid and all(str(r.get(f, "") or "").strip() for
+          f in ["order_id", "refunded_at", "currency"])
+      76 -        ts(r["refunded_at"]); a = dec(r["amount"]); assert a is
+         - not None and a > 0                                            
+      76 +        ts(r["refunded_at"]); a = dec(ramt(r)); assert a is not
+         + None and a > 0                                                
+      77      except (AssertionError, ValueError, KeyError):
+      78          rejected.append(("refunds", rid, day, "invalid_record")
+          ); continue
+      79      cur = str(r["currency"]).strip().upper()
+
+● Update(docs\specs\KIV-101\reference_calc.py)
+  ⎿  Added 1 line, removed 1 line
+      84      if cur != sales[oid]["cur"]: rejected.append(("refunds", ri
+          d, day, "currency_mismatch")); continue
+      85      valid.append((day, i, r))
+      86  for day, i, r in sorted(valid, key=rkey):
+      87 -    oid, a = str(r["order_id"]).strip(), dec(r["amount"])      
+      87 +    oid, a = str(r["order_id"]).strip(), dec(ramt(r))          
+      88      if used[oid] + a > sales[oid]["amt"]: rejected.append(("ref
+          unds", str(r["refund_id"]).strip(), day, "refund_exceeds_order"
+          )); continue
+      89      used[oid] += a
+      90      accepted.append(dict(refund_id=str(r["refund_id"]).strip(),
+           order_id=oid, customer_id=sales[oid]["customer_id"],
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Todo pasa en verde (32 tests y 68 PASS, check OK, run con 186 filas y 8
+  rechazos). Ahora muevo reference_calc.py al mismo commit que la
+  implementación, como pediste. · summary
+
+● Update(docs\specs\KIV-102\spec.md)
+  ⎿  Added 1 line, removed 1 line
+      28  | K4 | Un registro con `amount` y `refund_amount` a la vez, o s
+          in ninguno de los dos, es `invalid_record`, aunque los dos impo
+          rtes coincidan | Ana |
+      29  | K5 | Un registro con formato desconocido **no** detiene el pi
+          peline (opción D descartada). R1 no cambia | Ana |
+      30  | K6 | `reason` se guarda solo en `warehouse.db` (`raw_refunds.
+          reason`); no aparece en ningún CSV de salida | Ana |
+      31 -| K7 | `docs/specs/KIV-101/reference_calc.py` se adapta para no
+         -rmalizar igual, en su propio commit | Ana (adaptar); recomendac
+         -ión (commit propio) |                                          
+      31 +| K7 | `docs/specs/KIV-101/reference_calc.py` se adapta para no
+         +rmalizar igual, en el mismo commit que la implementación y just
+         +ificado en su mensaje. Si fuera en un commit aparte, el diferen
+         +cial quedaría en rojo entre los dos | Ana |                    
+      32  | K8 | El `detail` de `invalid_record` nombra el problema del i
+          mporte y el campo concreto | Recomendación |
+      33  | K9 | `reason` ausente se guarda como `NULL`, igual que `reaso
+          n: null` | Recomendación |
+      34  | K10 | Un control de calidad o aviso de rechazos masivos queda
+           **fuera** de KIV-102: cambiaría la estructura de `quality_repo
+          rt.json` (KIV-101 §3.3). Queda anotado como pendiente | Recomen
+          dación |
+
+● Update(docs\specs\KIV-102\plan.md)
+  ⎿  Added 2 lines, removed 2 lines
+      62    - `deduplicate_refunds` compara la tupla `REFUND_CONTENT` en
+          vez de `_raw` (R9);
+      63    - `_refund_problem` comprueba `_format` y nombra el campo en
+          el `detail` (R8).
+      64  - **`docs/specs/KIV-101/reference_calc.py`**: misma normalizaci
+          ón, escrita de forma
+      65 -  independiente. Firma de R9 sobre los cinco campos e importe d
+         -esde la clave única. Se justifica                              
+      66 -  en el mensaje del commit (K7).                               
+      65 +  independiente. Firma de R9 sobre los cinco campos e importe d
+         +esde la clave única. Va en este                                
+      66 +  mismo commit, como pidió Ana, y se justifica en su mensaje (K
+         +7).                                                            
+      67  - Verificación:
+      68    - `test` → `32 passed`;
+      69    - `acceptance` → los 50 PASS de KIV-101 más los nuevos, 0 FAI
+          L;
+
+  Made 1 scratchpad edit +22, ran 1 shell command (ctrl+o to expand)
+
+● Commit 3 (ca68d77) en verde. Falta la documentación. Saco los números de línea
+  de los tests y del código nuevos para la trazabilidad.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Escribo la respuesta del ticket.
+
+● Update(docs\tickets\KIV-102.md)
+  ⎿  Added 54 lines
+      33 
+      34  ## Notas del equipo de datos
+      35 
+      36 +- Análisis de impacto: `docs/specs/KIV-102/impact.md` (commit `
+         +7c79eb9`, antes de tocar código).                              
+      37 +- Especificación y plan: `docs/specs/KIV-102/spec.md` y `plan.m
+         +d`.                                                            
+      38 +- Antes del cambio, el pipeline rechazaba las 15 devoluciones n
+         +uevas como `invalid_record` sin                                
+      39 +  avisar: terminaba con código 0 y los tres controles en verde.
+      40 +- Ahora el formato se detecta registro a registro. Un registro 
+         +con `amount` y `refund_amount` a                               
+      41 +  la vez, o sin ninguno, va a `rejected.csv` como `invalid_reco
+         +rd`.                                                           
+      42 +- `reason` se guarda en `warehouse.db` (`raw_refunds.reason`) y
+         + no sale en ningún CSV.                                        
+      43 +- Pendiente: ningún control avisa de un rechazo masivo. Queda f
+         +uera de este ticket (spec K10).                                
+      44 +                                                               
+      45  ## Respuesta
+      46 +                                                               
+      47 +Hola, Jorge (y Marta, de Finanzas):                            
+      48 +                                                               
+      49 +Ya leemos los dos formatos de `refunds.json`, el antiguo con `a
+         +mount` y el nuevo con                                          
+      50 +`refund_amount` y `reason`. No hace falta reenviar nada.       
+      51 +                                                               
+      52 +**¿Cambian las cifras que ya tiene Finanzas?** No. Las cifras d
+         +el 1 al 7 de septiembre siguen                                 
+      53 +igual, fila a fila: 156 ventas, 18 490,74 € de bruto, 1 264,19 
+         +€ devueltos, 17 226,55 € de neto.                              
+      54 +                                                               
+      55 +**Del 8 al 10 de septiembre** (todo en euros, del 1 al 10):    
+      56 +                                                               
+      57 +| Concepto | Valor |                                           
+      58 +| --- | --- |                                                  
+      59 +| Ventas contadas | 213 pedidos |                              
+      60 +| Importe bruto | 25 072,41 € |                                
+      61 +| Importe devuelto | 1 576,04 € (311,85 € son devoluciones nuev
+         +as) |                                                          
+      62 +| Importe neto | 23 496,37 € |                                 
+      63 +| Filas cliente-día | 186 (22 solo con devoluciones; 24 con net
+         +o negativo) |                                                  
+      64 +| Controles de calidad | Los 3 pasan, sin registros que los inc
+         +umplan |                                                       
+      65 +                                                               
+      66 +Importe devuelto de los días nuevos: 112,06 € el día 8, 102,87 
+         +€ el 9, 86,97 € el 10 y 9,95 € el                              
+      67 +11. Esta última (R-1036) se hizo el día 10 a las 23:10 UTC, que
+         + en Madrid ya es el 11.                                        
+      68 +                                                               
+      69 +Sin este cambio, el importe devuelto de esos días habría salido
+         + a **0,00 €** y el neto, 311,85 €                              
+      70 +más alto.                                                      
+      71 +                                                               
+      72 +**Devoluciones nuevas que no hemos usado (2), y por qué:**     
+      73 +                                                               
+      74 +| Registro | Motivo |                                          
+      75 +| --- | --- |                                                  
+      76 +| Devolución R-1034 | Su pedido (K-19998) no aparece en ningún 
+         +fichero de pedidos |                                           
+      77 +| Devolución R-1035 | Con ella se devolverían 90 € de un pedido
+         + de 80 € (K-10155, que ya tenía 70 € devueltos); se rechaza ent
+         +era |                                                          
+      78 +                                                               
+      79 +**Lo que conviene saber:**                                     
+      80 +                                                               
+      81 +- El motivo (`reason`) no cambia ninguna cifra. Lo guardamos, p
+         +ero no sale en las tablas.                                     
+      82 +- Si la tienda reenvía una devolución antigua en el formato nue
+         +vo, con los mismos datos, se cuenta                            
+      83 +  una sola vez. El motivo no se tiene en cuenta para decidir si
+         + es la misma.                                                  
+      84 +- Si un registro trae los dos campos de importe, o ninguno, no 
+         +se usa y aparece en                                            
+      85 +  `rejected.csv`.                                              
+      86 +                                                               
+      87 +Evidencia: `uv run python tasks.py acceptance` → `68 PASS, 0 FA
+         +IL`. Comprueba estas cifras y                                  
+      88 +estos rechazos sobre los datos reales del 1 al 10, y que las de
+         +l 1 al 7 no cambian.                                           
+      89 +                                                               
+      90 +Equipo de datos                                                
+● Ahora docs/report.md: filas de la sección 3, trazabilidad de KIV-102 en la
+  sección 4 y sección 5.
+
+● Update(docs\report.md)
+  ⎿  Added 6 lines
+      78  | 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+          evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+          or`; reglas en `kivora/customer_metrics.py` | Revisé con mi tut
+          or el rojo del bloque 1, el verde del bloque 3 y la tabla de de
+          fectos de T10; aprobé cada commit | El permiso `deny` `PowerShe
+          ll(Remove-Item -Recurse*)` de la fase 3 bloqueó un comando que
+          borraba una carpeta temporal | Repetido sin borrar (en el scrat
+          chpad). `daily_sales.csv` igual byte a byte; `raw_refunds` = 32
+          ; S7 manual → código 2; la sonda da 156 ventas, 18490.74, 1264.
+          19 y los 6 rechazos de E18. Test `19 failed, 5 passed`, accepta
+          nce `20 PASS, 10 FAIL`; commit 4df50db | — |
+      79  | 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+          ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+          outputs.py`, `pipeline.run` y `check.py` | Revisé con mi tutor
+          el rojo del bloque 1, el verde del bloque 3 y la tabla de defec
+          tos de T10; aprobé cada commit | Ninguno: verde en la primera e
+          jecución | `24 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids
+          de la muestra fuera de `acceptance.py`; commit 0031c6c | — |
+      80  | 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto?
+          | Tres defectos introducidos a mano, uno cada vez, y deshechos
+          sin commit | Revisé con mi tutor el rojo del bloque 1, el verde
+           del bloque 3 y la tabla de defectos de T10; aprobé cada commit
+           | Los defectos 1 y 2 **no** los detecta `acceptance` (50/50):
+          solo los tests unitarios. Ver la tabla de T10 en la sección 4 |
+           Cada defecto hace fallar al menos un test; tras deshacerlos, `
+          git diff` vacío, `24 passed` y `50 PASS` | — |
+      81 +| 14 | 5 | Impacto de KIV-102 antes de tocar código | `impact.m
+         +d`: componentes afectados (archivo:línea), comportamiento actua
+         +l (15 devoluciones nuevas como `invalid_record` con todo en ver
+         +de), riesgo de `conflicting_duplicate` demostrado con un caso s
+         +intético, cinco opciones y recomendación A | Pedí el análisis s
+         +in código y con comandos; denegué un comando encadenado que inc
+         +luía `rm -rf` | El agente lo dividió en pasos sin borrar nada. 
+         +Al verificar la opción B vio que había escrito «fallarían 8 esc
+         +enarios» sin comprobarlo; simulado, eran 10 (E2, E6–E11, E13, E
+         +14, E18) | Corregido antes del commit `7c79eb9`, que solo inclu
+         +ye `impact.md` | — |                                           
+      82 +| 15 | 5 | Decidir la sección 5 de `impact.md` | Cinco decision
+         +es abiertas, con una recomendación en cada una | Decidí: opción
+         + A, `reason` fuera de R9, dos importes o ninguno = `invalid_rec
+         +ord`, sin opción D, `reason` solo en `warehouse.db`, adaptar `r
+         +eference_calc.py` | El resto, con la recomendación del agente: 
+         +`detail` claro, `reason` ausente = `NULL`, control de rechazos 
+         +masivos fuera de alcance | El agente confirmó la lista antes de
+         + escribir nada | — |                                           
+      83 +| 16 | 5 | Especificación y plan de KIV-102 | `spec.md` solo co
+         +n lo que cambia (K1–K10, R19–R21, R8 y R9 modificados, E20–E25,
+         + S9–S12) y `plan.md` en cuatro commits | Aprobé el commit en la
+         + petición de permiso | — | Commit `513334f`; `24 passed`, `50 P
+         +ASS, 0 FAIL` | — |                                             
+      84 +| 17 | 5 | Tests y oráculo en rojo | 8 tests nuevos y `acceptan
+         +ce` ampliado a 09-01..09-10 (E20–E25, «[referencia]», diferenci
+         +al 01–10, S9–S12) | Aprobé el commit en la petición de permiso 
+         +| El rojo coincidió con el previsto en el plan | Commit `d1780d
+         +8`: `8 failed, 24 passed`; `55 PASS, 13 FAIL`. Pasan en rojo E2
+         +5, S11 y el diferencial 01–10, porque pipeline y referencia com
+         +partían el fallo | — |                                         
+      85 +| 18 | 5 | Implementación y oráculo | Normalización en `ingest.
+         +py`; R8 y R9 en `customer_metrics.py`; `reference_calc.py` adap
+         +tado sin importar `kivora/` | Pedí implementación y oráculo en 
+         +el mismo commit (el agente había propuesto commits separados) |
+         + El agente ajustó K7 en la spec y el plan | Commit `ca68d77`: `
+         +32 passed`; `68 PASS, 0 FAIL` (los 50 de KIV-101 siguen); `chec
+         +k` OK; `run` 186 filas y 8 rechazos | — |                      
+      86 +| 19 | 5 | Documentación de KIV-102 | Respuesta del ticket a Fi
+         +nanzas, secciones 3–5 de esta memoria, `sources.md`, nota en la
+         + spec de KIV-101 y `CLAUDE.md` | Aprobé el commit en la petició
+         +n de permiso | — | Commit de documentación; `test` y `acceptanc
+         +e` en verde | Tag `phase-5` (lo pongo yo) |                    
+      87 
+      88  \## 4. Trazabilidad
+      89 
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      87 
+      88  \## 4. Trazabilidad
+      89 
+      90 -Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con 
+         -datos reales y S\* sintéticos, comprobados por `uv run python t
+         -asks.py acceptance`) → test de `tests/test_customer_metrics.py`
+         - → código. Resultado actual: `uv run python tasks.py test` → `2
+         -4 passed`; `uv run python tasks.py acceptance` → `50 PASS, 0 FA
+         -IL`.                                                           
+      90 +Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con 
+         +datos reales y S\* sintéticos, comprobados por `uv run python t
+         +asks.py acceptance`) → test de `tests/test_customer_metrics.py`
+         + → código. Resultado al cerrar KIV-101: `24 passed` y `50 PASS,
+         + 0 FAIL`. Con KIV-102 (tabla al final de esta sección): `uv run
+         + python tasks.py test` → `32 passed`; `uv run python tasks.py a
+         +cceptance` → `68 PASS, 0 FAIL`. Las filas R8 y R9 de esta tabla
+         + las modifica KIV-102.                                         
+      91 
+      92  | R | Qué exige | Escenarios | Tests (`tests/test_customer_metr
+          ics.py`) | Código |
+      93  |---|---|---|---|---|
+
+● Update(docs\report.md)
+  ⎿  Added 51 lines, removed 1 line
+      124 
+      125  **Test existente que fija un defecto (T11).** `tests/test_pipe
+           line.py:66-75` (`test_gross_matches_source_total`) suma `total
+           _amount` sin convertir divisas ni usar la última versión, así
+           que contradice el contrato de `daily_sales` (`docs/analysis.md
+           ` §3). No se ha adaptado: `daily_sales` está fuera de alcance
+           (D5) y el test sigue pasando sin cambios (`git diff --stat tes
+           ts/test_pipeline.py` vacío). Habrá que reescribirlo cuando se
+           corrija `daily_sales`.
+      126 
+      127 +**KIV-102** (`docs/specs/KIV-102/spec.md`):                   
+      128 
+      129 +| R | Qué exige | Escenarios | Tests (`tests/test_customer_met
+          +rics.py`) | Código |                                          
+      130 +|---|---|---|---|---|                                         
+      131 +| R19 | Formato por las claves de cada registro: `amount`, `re
+          +fund_amount`, las dos o ninguna | E20–E24, S9–S12 | `test_new_
+          +format_refund_is_accepted` (:446), `test_mixed_formats_in_one_
+          +file` (:468), `test_both_amount_fields_is_invalid_record` (:50
+          +7) | `kivora/ingest.py:44` |                                  
+      132 +| R20 | Registro normalizado; `reason` ausente o `null` = `NUL
+          +L` | E20, S12 | `test_new_format_reason_null_is_accepted` (:45
+          +8), `test_reason_only_in_warehouse` (:539) | `kivora/ingest.py
+          +:17`, `:44` |                                                 
+      133 +| R21 | `reason` solo en `warehouse.db` | S12 | `test_reason_o
+          +nly_in_warehouse` (:539) | `kivora/ingest.py:17`, `:21` |     
+      134 +| R8 (mod.) | Dos importes o ninguno → `invalid_record`; el `d
+          +etail` nombra el campo | S10, S11 | `test_both_amount_fields_i
+          +s_invalid_record` (:507), `test_missing_or_bad_amount_names_th
+          +e_field` (:520) | `kivora/customer_metrics.py:182-189` |      
+      135 +| R9 (mod.) | Duplicados sobre el registro normalizado, sin `r
+          +eason` | S9, E10 (sin cambios) | `test_same_refund_in_both_for
+          +mats_is_one_refund` (:479), `test_reason_does_not_count_for_du
+          +plicates` (:495), `test_duplicate_and_conflicting_refunds` (:2
+          +63, sin cambios) | `kivora/customer_metrics.py:24`, `:161` |  
+      136 +| — | Las cifras de 01–07 no cambian | E25 | — | — |          
+      137 +| — | Oráculo con la misma normalización | E20–E24 «[referenci
+          +a]», diferencial 01–10 | — | `docs/specs/KIV-101/reference_cal
+          +c.py:27` (`ramt`), `:64`, `:76`, `:87` |                      
+      138 
+      139 +                                                              
+      140 +                                                              
+      141  \## 5. Cambio de esquema
+      142 
+      143 +**Qué cambió.** Desde el 2026-09-08 `refunds.json` trae `refun
+          +d_amount` en lugar de `amount` y un campo nuevo, `reason` (tex
+          +to o `null`). Los ficheros antiguos no se reenvían: en `data/i
+          +nbox/` hay ficheros de los dos formatos (`docs/tickets/KIV-102
+          +.md`).                                                        
+      144 
+      145 +**Qué pasaba sin tocar nada.** Las 15 devoluciones nuevas salí
+          +an como `invalid_record`, con código 0, los tres controles en 
+          +verde y `test`, `check` y `acceptance` en verde. Se perdían 31
+          +1,85 € devueltos. `reference_calc.py` tenía el mismo fallo, as
+          +í que el diferencial tampoco lo veía (`docs/specs/KIV-102/impa
+          +ct.md` §2.1). Es la lección principal: un cambio de esquema qu
+          +e convierte los registros en rechazos no hace fallar nada si l
+          +os controles no miran los rechazos.                           
+      146 
+      133 -\_(fase 5)\_                                                  
+      147 +**Estrategia: aceptar los dos formatos, normalizando en la car
+          +ga.**                                                         
+      148 
+      149 +- **Dónde.** En `kivora/ingest.py:44` (`normalize_refund`). El
+          + resto del pipeline recibe siempre el mismo registro, y las re
+          +glas R10–R18 no se tocan. En `customer_metrics.py` solo cambia
+          +n la comparación de R9 y la validación del importe de R8.     
+      150 +- **Cómo se detecta el formato.** Por las claves de cada regis
+          +tro, no por la fecha de la carpeta ni por fichero. Así sirve c
+          +on reenvíos tardíos en el formato antiguo, con reprocesos y co
+          +n ficheros que mezclen formatos.                              
+      151 +- **Registros ambiguos.** Con los dos importes o sin ninguno s
+          +on `invalid_record`, con un `detail` que lo dice. No se adivin
+          +a cuál vale.                                                  
+      152 +- **Duplicados.** Se comparan sobre el registro normalizado (`
+          +refund_id`, `order_id`, `refunded_at`, importe y `currency`). 
+          +La misma devolución en los dos formatos es una copia, no un co
+          +nflicto: el riesgo 4.1 de `impact.md`, demostrado con un caso 
+          +sintético.                                                    
+      153 +- **`reason`.** Se guarda en `warehouse.db` (`raw_refunds.reas
+          +on`) para no perder información de la fuente. No entra en ning
+          +una regla ni en ningún CSV, porque no cambia ninguna cifra.   
+      154 
+      155 +**Por qué no las otras opciones** (`impact.md` §5):           
+      156 
+      157 +- Aceptar solo el formato nuevo dejaba el devuelto de 01–07 a 
+          +0,00 € y hacía fallar 10 escenarios de KIV-101 (simulado en `i
+          +mpact.md` A.4).                                               
+      158 +- Elegir el formato por fecha es frágil ante reenvíos.        
+      159 +- Detener el pipeline ante un formato desconocido cambia R1 y 
+          +deja a Finanzas sin cifras por un solo registro.              
+      160 +                                                              
+      161 +**Cambios de comportamiento asumidos:**                       
+      162 +                                                              
+      163 +- Dos apariciones que solo difieren en `reason` o en una clave
+          + desconocida eran `conflicting_duplicate` y ahora son copias (
+          +R9 modificado). En los datos reales no hay ningún caso.       
+      164 +- `raw_refunds` en `warehouse.db` tiene dos columnas nuevas, `
+          +reason` y `_format`. No es una salida con contrato, y `daily_s
+          +ales` y `top_customers` no la leen.                           
+      165 +                                                              
+      166 +**El oráculo también cambia.** `reference_calc.py` es de la sp
+          +ec de KIV-101. Adaptarlo es cambiar el oráculo de una spec apr
+          +obada, así que se decidió explícitamente (K7): se adaptó sin i
+          +mportar código de `kivora/`, en el mismo commit que la impleme
+          +ntación (`ca68d77`), y los esperados literales de E20–E24 (que
+          + salen de la simulación de `impact.md`, no del pipeline) se co
+          +mprueban también sobre la referencia.                         
+      167 +                                                              
+      168 +**Evidencia.**                                                
+      169 +                                                              
+      170 +| Paso | Commit | `test` | `acceptance` |                     
+      171 +|---|---|---|---|                                             
+      172 +| Análisis de impacto | `7c79eb9` | 24 passed | 50 PASS, 0 FAI
+          +L |                                                           
+      173 +| Spec y plan | `513334f` | 24 passed | 50 PASS, 0 FAIL |     
+      174 +| Tests en rojo | `d1780d8` | 8 failed, 24 passed | 55 PASS, 1
+          +3 FAIL |                                                      
+      175 +| Implementación | `ca68d77` | 32 passed | 68 PASS, 0 FAIL |  
+      176 +                                                              
+      177 +Con los datos reales, en `daily_customer_metrics`:            
+      178 +                                                              
+      179 +- 13 devoluciones nuevas aceptadas, por 311,85 €;             
+      180 +- R-1034 rechazada con `order_not_found` y R-1035 con `refund_
+          +exceeds_order`;                                               
+      181 +- las filas de 01–07 idénticas (E25).                         
+      182 +                                                              
+      183 +**Pendiente.** Ningún control avisa de un rechazo masivo (K10)
+          +. Añadirlo cambia la estructura de `quality_report.json`, que 
+          +es parte del contrato de KIV-101, así que queda para un ticket
+          + propio.                                                      
+      184 +                                                              
+      185 +                                                              
+      186 +                                                              
+      187  \## 6. Revisión
+      188 
+      189 
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      78  | 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+          evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+          or`; reglas en `kivora/customer_metrics.py` | Revisé con mi tut
+          or el rojo del bloque 1, el verde del bloque 3 y la tabla de de
+          fectos de T10; aprobé cada commit | El permiso `deny` `PowerShe
+          ll(Remove-Item -Recurse*)` de la fase 3 bloqueó un comando que
+          borraba una carpeta temporal | Repetido sin borrar (en el scrat
+          chpad). `daily_sales.csv` igual byte a byte; `raw_refunds` = 32
+          ; S7 manual → código 2; la sonda da 156 ventas, 18490.74, 1264.
+          19 y los 6 rechazos de E18. Test `19 failed, 5 passed`, accepta
+          nce `20 PASS, 10 FAIL`; commit 4df50db | — |
+      79  | 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+          ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+          outputs.py`, `pipeline.run` y `check.py` | Revisé con mi tutor
+          el rojo del bloque 1, el verde del bloque 3 y la tabla de defec
+          tos de T10; aprobé cada commit | Ninguno: verde en la primera e
+          jecución | `24 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids
+          de la muestra fuera de `acceptance.py`; commit 0031c6c | — |
+      80  | 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto?
+          | Tres defectos introducidos a mano, uno cada vez, y deshechos
+          sin commit | Revisé con mi tutor el rojo del bloque 1, el verde
+           del bloque 3 y la tabla de defectos de T10; aprobé cada commit
+           | Los defectos 1 y 2 **no** los detecta `acceptance` (50/50):
+          solo los tests unitarios. Ver la tabla de T10 en la sección 4 |
+           Cada defecto hace fallar al menos un test; tras deshacerlos, `
+          git diff` vacío, `24 passed` y `50 PASS` | — |
+      81 -| 14 | 5 | Impacto de KIV-102 antes de tocar código | `impact.m
+         -d`: componentes afectados (archivo:línea), comportamiento actua
+         -l (15 devoluciones nuevas como `invalid_record` con todo en ver
+         -de), riesgo de `conflicting_duplicate` demostrado con un caso s
+         -intético, cinco opciones y recomendación A | Pedí el análisis s
+         -in código y con comandos; denegué un comando encadenado que inc
+         -luía `rm -rf` | El agente lo dividió en pasos sin borrar nada. 
+         -Al verificar la opción B vio que había escrito «fallarían 8 esc
+         -enarios» sin comprobarlo; simulado, eran 10 (E2, E6–E11, E13, E
+         -14, E18) | Corregido antes del commit `7c79eb9`, que solo inclu
+         -ye `impact.md` | — |                                           
+      81 +| 14 | 5 | Impacto de KIV-102 antes de tocar código | `impact.m
+         +d`: componentes afectados (archivo:línea), comportamiento actua
+         +l (15 devoluciones nuevas como `invalid_record` con todo en ver
+         +de), riesgo de `conflicting_duplicate` demostrado con un caso s
+         +intético, cinco opciones y recomendación A | Pedí el análisis s
+         +in código y con comandos. Se denegó un comando encadenado que i
+         +ncluía `rm -rf` | El agente lo dividió en pasos sin borrar nada
+         +. Al verificar la opción B vio que había escrito «fallarían 8 e
+         +scenarios» sin comprobarlo; simulado, eran 10 (E2, E6–E11, E13,
+         + E14, E18) | Corregido antes del commit `7c79eb9`, que solo inc
+         +luye `impact.md` | — |                                         
+      82  | 15 | 5 | Decidir la sección 5 de `impact.md` | Cinco decision
+          es abiertas, con una recomendación en cada una | Decidí: opción
+           A, `reason` fuera de R9, dos importes o ninguno = `invalid_rec
+          ord`, sin opción D, `reason` solo en `warehouse.db`, adaptar `r
+          eference_calc.py` | El resto, con la recomendación del agente:
+          `detail` claro, `reason` ausente = `NULL`, control de rechazos
+          masivos fuera de alcance | El agente confirmó la lista antes de
+           escribir nada | — |
+      83  | 16 | 5 | Especificación y plan de KIV-102 | `spec.md` solo co
+          n lo que cambia (K1–K10, R19–R21, R8 y R9 modificados, E20–E25,
+           S9–S12) y `plan.md` en cuatro commits | Aprobé el commit en la
+           petición de permiso | — | Commit `513334f`; `24 passed`, `50 P
+          ASS, 0 FAIL` | — |
+      84  | 17 | 5 | Tests y oráculo en rojo | 8 tests nuevos y `acceptan
+          ce` ampliado a 09-01..09-10 (E20–E25, «[referencia]», diferenci
+          al 01–10, S9–S12) | Aprobé el commit en la petición de permiso
+          | El rojo coincidió con el previsto en el plan | Commit `d1780d
+          8`: `8 failed, 24 passed`; `55 PASS, 13 FAIL`. Pasan en rojo E2
+          5, S11 y el diferencial 01–10, porque pipeline y referencia com
+          partían el fallo | — |
+
+● Update(docs\sources.md)
+  ⎿  Couldn't edit file
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(docs\sources.md)
+  ⎿  Added 18 lines, removed 6 lines
+      59  | `refund_id` | Identificador de la devolución |
+      60  | `order_id` | Pedido al que corresponde |
+      61  | `refunded_at` | Momento de la devolución (UTC, ISO 8601 con `
+          Z`) |
+      62 -| `amount` | Importe devuelto (número), en la moneda del pedido
+         - |                                                             
+      62 +| `amount` | Importe devuelto (número), en la moneda del pedido
+         +. Solo en el formato antiguo |                                 
+      63 +| `refund_amount` | Importe devuelto (número), en la moneda del
+         + pedido. Solo en el formato nuevo |                            
+      64  | `currency` | Moneda (ISO 4217) |
+      65 +| `reason` | Motivo de la devolución, texto libre o `null`. Sol
+         +o en el formato nuevo |                                        
+      66 
+      65 -Cómo lo trata el pipeline (`docs/specs/KIV-101/spec.md` R1, R8–
+         -R11):                                                          
+      67 +Desde el 2026-09-08 llega el formato nuevo (`docs/tickets/KIV-1
+         +02.md`): `refund_amount` en lugar                              
+      68 +de `amount`, y `reason`. Los ficheros anteriores no se reenvían
+         +, así que conviven los dos                                     
+      69 +formatos.                                                      
+      70 
+      71 +Cómo lo trata el pipeline (`docs/specs/KIV-101/spec.md` R1, R8–
+         +R11, y                                                         
+      72 +`docs/specs/KIV-102/spec.md` R19–R21):                         
+      73 +                                                               
+      74  - Fichero ausente o `[]`: cero devoluciones ese día. Si no es J
+          SON válido, el pipeline se
+      68 -  detiene con código 2 y un mensaje que nombra el fichero (`kiv
+         -ora/ingest.py:39`,                                             
+      75 +  detiene con código 2 y un mensaje que nombra el fichero (`kiv
+         +ora/ingest.py:57`,                                             
+      76    `kivora/__main__.py:30`).
+      77 +- El formato se detecta registro a registro, por la clave del i
+         +mporte (`kivora/ingest.py:44`).                                
+      78 +  Un registro con `amount` y `refund_amount`, o sin ninguno, va
+         + a `rejected.csv` como                                         
+      79 +  `invalid_record`.                                            
+      80  - Los importes se leen como decimales exactos (`parse_float=Dec
+          imal`), nunca como `float`.
+      71 -- Puede llegar la misma devolución en dos días: la copia idénti
+         -ca se descarta como                                            
+      72 -  `duplicate_refund`; si el contenido difiere, todas sus aparic
+         -iones se rechazan como                                         
+      73 -  `conflicting_duplicate`.                                     
+      81 +- Puede llegar la misma devolución en dos días, también en form
+         +atos distintos. Se compara                                     
+      82 +  `refund_id`, `order_id`, `refunded_at`, importe y `currency` 
+         +(no `reason`). La copia idéntica                               
+      83 +  se descarta como `duplicate_refund`; si el contenido difiere,
+         + todas sus apariciones se rechazan                             
+      84 +  como `conflicting_duplicate`.                                
+      85 +- `reason` se guarda solo en `warehouse.db` (`raw_refunds.reaso
+         +n`).                                                           
+      86  - Cada devolución no usada va a `rejected.csv` con su motivo.
+      87 
+      88  ## `data/reference/fx_rates.csv`
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Al añadir líneas se han desplazado las referencias archivo:línea de la tabla
+  de KIV-101 en report.md. Las recalculo.
+
+  Made 1 scratchpad edit +24, ran 2 shell commands (ctrl+o to expand)
+
+● Compruebo que el script no ha estropeado los saltos de línea CRLF del fichero.
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Los saltos de línea están bien. Quedan la nota en la spec de KIV-101 y la
+  línea de CLAUDE.md.
+
+  Read 1 file (ctrl+o to expand)
+
+● Update(CLAUDE.md)
+  ⎿  Added 3 lines, removed 2 lines
+       3  Pipeline diario de ventas de Kivora, una tienda online, en Pyth
+          on y SQLite.
+       4 
+       5  - **Entrada:** `data/inbox/<día>/{orders,customers,payments}.cs
+          v` y, desde el 09-04, un
+       6 -  `refunds.json` opcional. Cada día trae solo registros nuevos 
+         -o modificados. Las marcas de                                   
+       7 -  tiempo vienen en UTC.                                        
+       6 +  `refunds.json` opcional. Conviven dos formatos de `refunds.js
+         +on`: `amount` hasta el 09-07 y                                 
+       7 +  `refund_amount` + `reason` desde el 09-08 (KIV-102). Cada día
+         + trae solo registros nuevos o                                  
+       8 +  modificados. Las marcas de tiempo vienen en UTC.             
+       9  - **Importes:** **no** vienen en EUR. Cada pedido trae su moned
+          a y se convierte con
+      10    `data/reference/fx_rates.csv`.
+      11  - **Código:** la carga está en `kivora/` y las transformaciones
+           SQL en `sql/`. KIV-101 se
+
+● Update(docs\specs\KIV-101\spec.md)
+  ⎿  Added 4 lines
+      173    posición anterior) y cada copia se rechaza con `duplicate_re
+           fund`. Si el contenido difiere, se
+      174    rechazan todas con `conflicting_duplicate` y ninguna pasa a
+           R8. Dos devoluciones con distinto
+      175    `refund_id` son siempre distintas.
+      176 +                                                              
+      177 +  *Nota (KIV-102):* R8 y R9 están modificados por `docs/specs/
+          +KIV-102/spec.md`. Aceptan los dos                             
+      178 +  formatos de `refunds.json` (`amount` o `refund_amount`) y co
+          +mparan el registro normalizado, sin                           
+      179 +  `reason`.                                                   
+      180  - **R10.** Una devolución cuyo pedido no existe se rechaza con
+            `order_not_found`; si el pedido
+      181    existe pero no es venta, con `order_not_sale`; si su moneda
+           no es la del pedido, con
+      182    `currency_mismatch`.
+
+  Made 1 scratchpad edit +15, ran 2 shell commands (ctrl+o to expand)
+
+● He hecho los cuatro commits y los cuatro tienen Co-Authored-By. No he hecho
+  push ni tag, y el árbol de trabajo está limpio. Al final todo pasa: 32 passed,
+  68 PASS, 0 FAIL y check OK.
+
+  ┌─────┬─────────┬─────────────────────────────┬────────────┬─────────────┐
+  │  #  │ Commit  │          Contenido          │    test    │ acceptance  │
+  ├─────┼─────────┼─────────────────────────────┼────────────┼─────────────┤
+  │ 1   │ 513334f │ spec.md y plan.md de        │ 24 passed  │ 50 PASS     │
+  │     │         │ KIV-102                     │            │             │
+  ├─────┼─────────┼─────────────────────────────┼────────────┼─────────────┤
+  │ 2   │ d1780d8 │ 8 tests nuevos y acceptance │ 8 failed,  │ 55 PASS, 13 │
+  │     │         │  ampliado (en rojo)         │ 24 passed  │  FAIL       │
+  ├─────┼─────────┼─────────────────────────────┼────────────┼─────────────┤
+  │ 3   │ ca68d77 │ Implementación y            │ 32 passed  │ 68 PASS, 0  │
+  │     │         │ reference_calc.py adaptado  │            │ FAIL        │
+  ├─────┼─────────┼─────────────────────────────┼────────────┼─────────────┤
+  │     │         │ Respuesta del ticket,       │            │ 68 PASS, 0  │
+  │ 4   │ f0968c3 │ report.md y resto de        │ 32 passed  │ FAIL        │
+  │     │         │ documentación               │            │             │
+  └─────┴─────────┴─────────────────────────────┴────────────┴─────────────┘
+
+  Qué fallaba en el commit 2 (rojo)
+  - Tests:
+    - las devoluciones del formato nuevo no aparecían en las métricas: KeyError:
+      ('2026-09-02', 'C1'), y refunds_count daba 0 donde se esperaba 1;
+    - la misma devolución en los dos formatos, o dos copias que solo difieren en
+      reason, salía como conflicting_duplicate;
+    - un registro con los dos importes se aceptaba;
+    - el detail de los rechazos decía amount no numérico o <= 0: None;
+    - warehouse.db no tenía la columna reason: no such column: reason.
+  - Acceptance:
+    - E20 y E23: faltaban las filas 2026-09-08,C029,…,10.00,-10.00,… y
+      2026-09-11,C031,…,9.95,…;
+    - E21 y E22: R-1034 y R-1035 salían como invalid_record en lugar de su
+      motivo real;
+    - E24: el devuelto daba 1264.19 en vez de 1576.04;
+    - fallaban lo mismo los cinco [referencia] (E20–E24 sobre
+      reference_calc.py), y además S9, S10 y S12.
+  - Lo que ya pasaba en rojo: E25, porque las cifras del 01 al 07 no cambiaban
+    ni antes; S11, porque un registro sin importe ya salía como invalid_record;
+    y el diferencial del 01 al 10, porque el pipeline y la referencia tenían el
+    mismo fallo.
+
+  Implementación (commit 3)
+  - Carga: el formato se detecta por las claves de cada registro
+    (kivora/ingest.py:44). El importe se guarda siempre en amount, y raw_refunds
+    tiene dos columnas nuevas, reason y _format.
+  - Duplicados: se compara refund_id, order_id, refunded_at, importe y currency,
+    sin reason (kivora/customer_metrics.py:24, :161).
+  - Rechazos: un registro con los dos importes o sin ninguno es invalid_record,
+    y el detail nombra el campo (kivora/customer_metrics.py:182-189).
+  - reference_calc.py: aplica la misma regla, escrita sin importar código de
+    kivora/.
+  - Datos reales: 186 filas y 8 rechazos.
+
+  Documentación (commit 4)
+  - La respuesta a Finanzas dice que las cifras del 01 al 07 no cambian. Del 08
+    al 11 hay 311,85 € devueltos que antes se perdían, y R-1034 y R-1035 no se
+    usan por motivos de negocio.
+  - docs/report.md:
+    - la sección 5 explica la estrategia y por qué se descartaron las otras
+      opciones;
+    - la sección 3 tiene una fila por vuelta, de la 14 a la 19;
+    - la sección 4 tiene una tabla nueva de trazabilidad para KIV-102.
+  - Al cambiar el código se desplazaron 15 referencias archivo:línea de KIV-101
+    en report.md; las he actualizado.
+  - Como lo había previsto en impact.md, también he tocado docs/sources.md, una
+    línea de CLAUDE.md y una nota en R8/R9 de la spec de KIV-101.
+
+  Decisiones a revisar
+  - Ajusté K7 en la spec y el plan: el plan decía que reference_calc.py iría en
+    un commit propio. Tú pediste que fuera con la implementación, y así lo he
+    hecho.
+  - Columna «Mi revisión» de las filas 16–19 de la sección 3: solo pone que
+    aprobaste el commit en la petición de permiso. Complétala con tu revisión
+    real.
+
+  El tag phase-5 lo pones tú.
+
+✻ Cooked for 8m 43s · done 21:38
+
+> En docs/report.md las líneas 1, 5, 21, 62, 88, 141, 187, 191, 195 y 199       
+  empiezan con una barra invertida (por ejemplo "\## 4. Trazabilidad" y         
+  "\_(fase 6)\_"), así que Markdown no las muestra como títulos. Quita solo     
+  esas barras invertidas iniciales (y las de "\_" en las líneas 191 y 199), sin 
+  cambiar nada más ni la codificación ni los saltos de línea. Comprueba con     
+  Select-String que no queda ninguna línea que empiece por "\" y haz un commit  
+  con mensaje en español y tu Co-Authored-By.                                   
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Son exactamente las 10 líneas que dices. El fichero está en UTF-8 sin BOM y
+  con CRLF, así que lo edito a nivel de bytes, solo en esas líneas.
+
+  Made 1 scratchpad edit +19, ran 1 shell command (ctrl+o to expand)
+
+● Salen las 10 líneas, nada más, con 200 CRLF y ningún LF suelto, igual que
+  antes. Hago el commit.
+
+  Made 1 scratchpad edit +9, ran 1 shell command (ctrl+o to expand)
+
+● He quitado las barras invertidas de las 10 líneas y está en el commit e213ded,
+  con el mensaje en español y mi Co-Authored-By.
+
+  - Cambios: las líneas 1, 5, 21, 62, 88, 141, 187 y 195 ya empiezan por # y se
+    ven como títulos. Las líneas 191 y 199 son ahora _(fase 6)_ y se ven en
+    cursiva.
+  - Comprobación: Select-String -Path docs/report.md -Pattern '^\\' ya no
+    encuentra ninguna línea. El diff tiene 10 líneas añadidas y 10 quitadas,
+    solo esas.
+  - Codificación y saltos de línea: el fichero sigue en UTF-8 sin BOM y con sus
+    200 saltos CRLF; no ha aparecido ningún LF suelto. Para no tocar nada más,
+    lo edité a nivel de bytes con un script que comprobaba antes el contenido de
+    cada una de esas líneas.
+
+  Git avisa de que convertirá CRLF en LF la próxima vez que toque el fichero.
+  Ese aviso ya salía antes de este cambio, y lo que ha guardado el commit no se
+  ha tocado.
+
+✻ Churned for 30s · done 21:41
