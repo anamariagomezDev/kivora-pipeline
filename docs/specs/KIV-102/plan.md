@@ -62,8 +62,8 @@ validación del importe en R8.
   - `deduplicate_refunds` compara la tupla `REFUND_CONTENT` en vez de `_raw` (R9);
   - `_refund_problem` comprueba `_format` y nombra el campo en el `detail` (R8).
 - **`docs/specs/KIV-101/reference_calc.py`**: misma normalización, escrita de forma
-  independiente. Firma de R9 sobre los cinco campos e importe desde la clave única. Se justifica
-  en el mensaje del commit (K7).
+  independiente. Firma de R9 sobre los cinco campos e importe desde la clave única. Va en este
+  mismo commit, como pidió Ana, y se justifica en su mensaje (K7).
 - Verificación:
   - `test` → `32 passed`;
   - `acceptance` → los 50 PASS de KIV-101 más los nuevos, 0 FAIL;

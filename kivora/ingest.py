@@ -11,9 +11,14 @@ SOURCES = {
     "customers": ["customer_id", "name", "country", "signup_date"],
     "payments": ["payment_id", "order_id", "paid_at", "method", "status", "amount"],
 }
-REFUND_FIELDS = ["refund_id", "order_id", "refunded_at", "amount", "currency"]
-# `_raw`: the whole JSON object, canonical, to compare duplicates by content (R9).
-REFUND_COLUMNS = REFUND_FIELDS + ["_raw"]
+# Normalised refund (KIV-102 R20): `amount` is the refund amount whatever key it came in
+# (`amount` in the old format, `refund_amount` in the new one); `reason` only exists in the
+# new format and is NULL when absent or null.
+REFUND_FIELDS = ["refund_id", "order_id", "refunded_at", "amount", "currency", "reason"]
+AMOUNT_KEYS = ("amount", "refund_amount")
+# `_format` (KIV-102 R19): the amount key the object brings: amount, refund_amount, both, none.
+# `_raw`: the whole JSON object, canonical, kept only as a trace (R9 compares REFUND_CONTENT).
+REFUND_COLUMNS = REFUND_FIELDS + ["_format", "_raw"]
 
 
 class InputError(Exception):
@@ -36,6 +41,19 @@ def _as_text(value):
     return json.dumps(value, sort_keys=True, default=str, ensure_ascii=False)
 
 
+def normalize_refund(item):
+    """KIV-102 R19, R20: one JSON refund, in either format -> row of REFUND_COLUMNS.
+    The format is decided by the keys of this object, never by its day or file."""
+    present = [key for key in AMOUNT_KEYS if key in item]
+    if len(present) == 1:
+        fmt, amount = present[0], item[present[0]]
+    else:
+        fmt, amount = ("both" if present else "none"), None
+    values = {**item, "amount": amount, "reason": item.get("reason")}
+    raw = json.dumps(item, sort_keys=True, default=str, ensure_ascii=False)
+    return [_as_text(values.get(f)) for f in REFUND_FIELDS] + [fmt, raw]
+
+
 def read_refunds(path):
     """Rows of refunds.json: missing file or [] -> no rows; invalid JSON -> InputError."""
     path = Path(path)
@@ -51,8 +69,7 @@ def read_refunds(path):
     for pos, item in enumerate(data):
         if not isinstance(item, dict):
             raise InputError(f"{path}: el elemento {pos} no es un objeto")
-        raw = json.dumps(item, sort_keys=True, default=str, ensure_ascii=False)
-        rows.append([_as_text(item.get(f)) for f in REFUND_FIELDS] + [raw])
+        rows.append(normalize_refund(item))
     return rows
 
 

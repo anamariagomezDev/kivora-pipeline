@@ -2,7 +2,8 @@
 
 Pure functions, no I/O. Rows are dicts with the raw TEXT columns of the raw_* tables
 plus `_day` (inbox folder) and `_pos` (position in its file). Requirement ids (R*) are
-those of docs/specs/KIV-101/spec.md.
+those of docs/specs/KIV-101/spec.md; R8 and R9 as modified, and R19–R21, by
+docs/specs/KIV-102/spec.md. Refund rows arrive already normalised (kivora/ingest.py).
 """
 
 from bisect import bisect_right
@@ -19,6 +20,8 @@ ORDER_REQUIRED = ["order_id", "customer_id", "created_at", "updated_at", "status
                   "currency", "total_amount"]
 ORDER_STATUSES = ("confirmed", "cancelled")
 REFUND_REQUIRED = ["order_id", "refunded_at", "currency"]
+# KIV-102 R9: what "same content" means. Not `reason`, not which key brought the amount.
+REFUND_CONTENT = ["refund_id", "order_id", "refunded_at", "amount", "currency"]
 
 
 # --- values ----------------------------------------------------------------
@@ -155,7 +158,7 @@ def deduplicate_refunds(refund_rows):
     candidates = []
     for rid in sorted(groups):
         rows = groups[rid]
-        if len({r["_raw"] for r in rows}) > 1:
+        if len({tuple(r[f] for f in REFUND_CONTENT) for r in rows}) > 1:
             rejected += [rejection("refunds", rid, "conflicting_duplicate", r,
                                    f"{len(rows)} apariciones con contenido distinto")
                          for r in rows]
@@ -176,9 +179,14 @@ def _refund_problem(row):
         parse_ts(row["refunded_at"])
     except ValueError:
         return f"refunded_at no es ISO 8601 con zona: {row['refunded_at']!r}"
+    # KIV-102 R8: the amount, whichever key it came in (`_format`, R19).
+    if row["_format"] == "both":
+        return "trae amount y refund_amount a la vez"
+    if row["_format"] == "none":
+        return "falta el importe (amount o refund_amount)"
     amount = to_decimal(row["amount"])
     if amount is None or amount <= 0:
-        return f"amount no numérico o <= 0: {row['amount']!r}"
+        return f"{row['_format']} no numérico o <= 0: {row['amount']!r}"
     return None
 
 

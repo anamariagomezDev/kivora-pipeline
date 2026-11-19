@@ -28,7 +28,7 @@ antiguo, y las cifras ya entregadas a Finanzas (días 09-01 a 09-07) no cambian.
 | K4 | Un registro con `amount` y `refund_amount` a la vez, o sin ninguno de los dos, es `invalid_record`, aunque los dos importes coincidan | Ana |
 | K5 | Un registro con formato desconocido **no** detiene el pipeline (opción D descartada). R1 no cambia | Ana |
 | K6 | `reason` se guarda solo en `warehouse.db` (`raw_refunds.reason`); no aparece en ningún CSV de salida | Ana |
-| K7 | `docs/specs/KIV-101/reference_calc.py` se adapta para normalizar igual, en su propio commit | Ana (adaptar); recomendación (commit propio) |
+| K7 | `docs/specs/KIV-101/reference_calc.py` se adapta para normalizar igual, en el mismo commit que la implementación y justificado en su mensaje. Si fuera en un commit aparte, el diferencial quedaría en rojo entre los dos | Ana |
 | K8 | El `detail` de `invalid_record` nombra el problema del importe y el campo concreto | Recomendación |
 | K9 | `reason` ausente se guarda como `NULL`, igual que `reason: null` | Recomendación |
 | K10 | Un control de calidad o aviso de rechazos masivos queda **fuera** de KIV-102: cambiaría la estructura de `quality_report.json` (KIV-101 §3.3). Queda anotado como pendiente | Recomendación |

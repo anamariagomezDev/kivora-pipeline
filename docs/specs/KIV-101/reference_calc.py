@@ -1,5 +1,10 @@
 """Cálculo de referencia de KIV-101 (solo lectura; ver spec.md §5 y Anexo A).
 
+Adaptado en KIV-102 (docs/specs/KIV-102/spec.md, K7): el importe de cada devolución sale de la
+única clave que traiga, `amount` (formato antiguo) o `refund_amount` (nuevo); con las dos o con
+ninguna es invalid_record. R9 compara refund_id, order_id, refunded_at, importe y currency
+(no `reason`).
+
 Uso: uv run python -I docs/specs/KIV-101/reference_calc.py <inbox> <reference> [--summary | claves "AAAA-MM-DD,cliente"...]
 """
 import csv, json, sys
@@ -19,6 +24,9 @@ def dec(v):
     try: d = Decimal(str(v).strip())
     except (InvalidOperation, ValueError): return None
     return d if d.is_finite() else None
+def ramt(r):  # KIV-102: importe de la devolución si trae exactamente una de las dos claves
+    keys = [k for k in ("amount", "refund_amount") if k in r]
+    return r[keys[0]] if len(keys) == 1 else None
 
 orders, customers, captured, refunds = {}, {}, set(), []
 for day in sorted(p for p in inbox.iterdir() if p.is_dir()):
@@ -53,7 +61,7 @@ for day, i, r in refunds:
     byid[rid].append((day, i, r))
 cand = []
 for rid, occ in byid.items():
-    sig = lambda r: json.dumps(r, sort_keys=True)
+    sig = lambda r: json.dumps([r.get("refund_id"), r.get("order_id"), r.get("refunded_at"), ramt(r), r.get("currency")])
     if len({sig(r) for _, _, r in occ}) > 1:
         rejected += [("refunds", rid, d, "conflicting_duplicate") for d, _, _ in occ]; continue
     for d, _, _ in occ[1:]: rejected.append(("refunds", rid, d, "duplicate_refund"))
@@ -65,7 +73,7 @@ for day, i, r in cand:
     rid = str(r.get("refund_id", "")).strip()
     try:
         assert rid and all(str(r.get(f, "") or "").strip() for f in ["order_id", "refunded_at", "currency"])
-        ts(r["refunded_at"]); a = dec(r["amount"]); assert a is not None and a > 0
+        ts(r["refunded_at"]); a = dec(ramt(r)); assert a is not None and a > 0
     except (AssertionError, ValueError, KeyError):
         rejected.append(("refunds", rid, day, "invalid_record")); continue
     cur = str(r["currency"]).strip().upper()
@@ -76,7 +84,7 @@ for day, i, r in cand:
     if cur != sales[oid]["cur"]: rejected.append(("refunds", rid, day, "currency_mismatch")); continue
     valid.append((day, i, r))
 for day, i, r in sorted(valid, key=rkey):
-    oid, a = str(r["order_id"]).strip(), dec(r["amount"])
+    oid, a = str(r["order_id"]).strip(), dec(ramt(r))
     if used[oid] + a > sales[oid]["amt"]: rejected.append(("refunds", str(r["refund_id"]).strip(), day, "refund_exceeds_order")); continue
     used[oid] += a
     accepted.append(dict(refund_id=str(r["refund_id"]).strip(), order_id=oid, customer_id=sales[oid]["customer_id"],
