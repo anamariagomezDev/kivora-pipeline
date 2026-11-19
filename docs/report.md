@@ -32,7 +32,40 @@
 
 
 
-\_(fase 3)\_
+Archivos: `.claude/settings.json` (permisos y registro del hook, compartido con el equipo) y `.claude/hooks/protect_inputs.py`. Lo que no está ni en `allow` ni en `deny` (editar archivos, `git commit`, `uv sync`, `git push` desde PowerShell...) **pregunta** cada vez.
+
+#### Tabla de protecciones
+
+| Riesgo | Mecanismo | Tipo | Por qué ese tipo |
+|---|---|---|---|
+| Modificar los datos de entrada (`data/inbox/`, `data/reference/`, `deliveries/`) con las herramientas de edición | Hook `PreToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|NotebookEdit` (`.claude/settings.json:36-40`), respaldado por `CLAUDE.md:24` | Hook (+ instrucción) | Los permisos filtran por herramienta y patrón, pero aquí hay que decidir por la ruta normalizada (relativa, absoluta, `..`, mayúsculas en Windows). El hook lo hace con código y es determinista; la instrucción sola se puede ignorar |
+| Modificar los datos de entrada desde la shell (`Set-Content`, `Copy-Item`, `git checkout -- data/...`) | Ninguno automático: esos comandos no están en `allow`, así que piden permiso | Permiso (preguntar) | Limitación conocida: el hook no inspecciona comandos de shell. Reconocer rutas dentro de un comando arbitrario por patrones no es fiable; la red de seguridad es revisar cada petición |
+| Recibir una entrega fuera de su fase | `deny` de `tasks.py deliver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y reconocible por prefijo: el deny lo bloquea siempre. La entrega la ejecuto yo con `!`, en su commit propio |
+| Subir o reescribir el historial | `deny` de `git push*`, `git reset --hard*`, `git rebase*` en Bash (`.claude/settings.json:26-28`); `CLAUDE.md:29` | Permiso (deny) + instrucción | Comandos con prefijo fijo: el permiso es la herramienta justa y no depende de que el agente lo recuerde. En PowerShell no están en `allow`, así que preguntan |
+| Borrar archivos | `deny` de `rm -rf*` (`.claude/settings.json:29`); `Remove-Item` no está permitido y pregunta | Permiso (deny / preguntar) | El borrado recursivo no tiene vuelta atrás, se prohíbe; el resto de borrados se aprueban uno a uno |
+| Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.json:30`); `settings.json` no contiene claves | Permiso (deny) | Bloquea la lectura con la herramienta Read aunque Read esté permitido en general (deny gana a allow). Leerlo por shell (`cat`, `Get-Content`) no está permitido y pregunta |
+| Dar el trabajo por terminado sin verificar | Sección "Cuándo está terminado un trabajo" (`CLAUDE.md:31-34`) y `allow` de `test`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-18`) | Instrucción (+ permiso) | Es un criterio de cierre, no una acción que se pueda bloquear. Permitir esos comandos sin preguntar hace barato verificar. Se reforzará en la fase 4 con `acceptance` como señal de parada |
+| Perder el control de lo que se ejecuta (comandos encadenados, scripts nuevos) | Lista `allow` corta: solo lectura, `tasks.py test/run/check/acceptance` y `git status/diff/log` (`.claude/settings.json:4-22`) | Permiso (allow) | Se permite sin preguntar solo lo que no modifica nada fuera de `output/` y se repite mucho (fases 1 y 2); lo demás pasa por mí |
+
+#### Mecanismo de extensión: hook `protect_inputs.py`
+
+- **Qué problema resuelve.** `CLAUDE.md:24` prohíbe tocar `data/inbox/` y `deliveries/`, y `data/reference/` (tipos de cambio) tampoco debe tocarse. Ante datos anómalos (como los de KIV-101), lo más rápido para un agente es "arreglar" el CSV en vez de tratar el caso en el pipeline; así los tests pasan pero el pipeline sigue sin tratar ese caso.
+- **Por qué un hook.** Se ejecuta antes de cada `Write`, `Edit`, `MultiEdit` o `NotebookEdit`, recibe la ruta destino por stdin y la normaliza (relativa o absoluta, `..`, separadores y mayúsculas de Windows). Si cae dentro de una carpeta protegida sale con código 2 y el motivo en stderr, que Claude Code le muestra al agente. Si el JSON no se puede leer, bloquea (falla cerrado).
+- **Qué aporta frente a pedírselo al agente.** Una instrucción en CLAUDE.md se puede ignorar u olvidar en una sesión larga o tras compactar el contexto; el hook es determinista: se ejecuta siempre, sea cual sea el modelo o la sesión, y no depende de que yo revise cada diff. Además le explica al agente el motivo y la alternativa (resolverlo en el pipeline).
+- **Prueba real** (PowerShell, `$env:CLAUDE_PROJECT_DIR` = raíz del repo, `... | python .claude/hooks/protect_inputs.py; $LASTEXITCODE`):
+
+| Entrada (`tool_input`) | Código de salida |
+|---|---|
+| `file_path: data/inbox/2026-09-01/orders.csv` (Write) | 2 (bloqueado) |
+| `file_path: docs/report.md` (Edit) | 0 (permitido) |
+| `file_path: docs\..\DATA\Reference\fx_rates.csv` | 2 |
+| `file_path: <ruta absoluta>/deliveries/2/orders.csv` | 2 |
+| `notebook_path: data/inbox/x.ipynb` (NotebookEdit) | 2 |
+| `file_path: data/inbox_notes.md` (prefijo parecido, fuera de la carpeta) | 0 |
+| stdin que no es JSON | 2 |
+
+  En el primer intento todas las pruebas salían con 2, incluida `docs/report.md`: PowerShell 5.1 antepone un BOM UTF-8 al stdin y el hook no lo aceptaba. Si solo se hubiera mirado el caso del inbox, habría parecido que funcionaba. Se corrigió leyendo stdin como `utf-8-sig` y se repitieron las pruebas.
+- **Límite.** Solo cubre las herramientas de edición; las escrituras desde Bash/PowerShell dependen del permiso (preguntar) y de mi revisión.
 
 
 
