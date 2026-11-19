@@ -55,7 +55,7 @@ def check(_):
 
 
 def acceptance(_):
-    """KIV-101 acceptance scenarios (spec §5-§6) on a temporary copy of days 09-01..09-07."""
+    """KIV-101 and KIV-102 acceptance (E1-E25, S1-S14, differential) on temporary copies."""
     return _module("kivora.acceptance")
 
 

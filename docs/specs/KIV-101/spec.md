@@ -2,6 +2,13 @@
 
 - **Ticket:** `docs/tickets/KIV-101.md`
 - **Estado:** aprobada por Ana tras revisión (fase 2). No se ha modificado código.
+- **Nota de estado (2026-11-19).** Lo anterior describe la fase 2 y se mantiene como registro.
+  Hoy KIV-101 está implementada (`kivora/customer_metrics.py`, `kivora/outputs.py`). R8 y R9
+  están modificados por KIV-102 (`docs/specs/KIV-102/spec.md`), y R2 y el R9 de KIV-102 tienen
+  una nota de la revisión independiente (`docs/review.md`, H1 y H2). Todos los escenarios de §5 y
+  §6 se ejecutan con `uv run python tasks.py acceptance`: S7 y S8 también (contra lo que dice §6,
+  escrito antes de implementarlos), además de S14, añadido tras la revisión. Con el código en
+  `d450965`, el resultado es 70 PASS, 0 FAIL.
 - **Decisiones:** Ana, a partir de la propuesta del agente (sección [Aclaraciones](#aclaraciones)).
 - **Datos de referencia:** `data/inbox/2026-09-01` … `2026-09-07` y `data/reference/fx_rates.csv`
   (EUR 1.0, GBP 1.17, USD 0.92).

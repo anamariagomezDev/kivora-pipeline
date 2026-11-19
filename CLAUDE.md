@@ -23,13 +23,13 @@ Pipeline diario de ventas de Kivora, una tienda online, en Python y SQLite.
 - Tests (pytest): `uv run python tasks.py test`
 - Comprobar la salida: `uv run python tasks.py check` (solo mira las columnas, que `gross_amount >= 0`
   y la estructura de `quality_report.json`)
-- Oráculo de KIV-101: `uv run python tasks.py acceptance` (escenarios E1–E19 y S1–S8 de la spec
-  sobre una copia temporal de los días 09-01..09-07; código 0 solo si pasan todos)
+- Oráculo de KIV-101 y KIV-102: `uv run python tasks.py acceptance` (E1–E25 sobre copias temporales de 09-01..09-07
+  y 09-01..09-10, diferencial con `reference_calc.py` y sintéticos S1–S14; código 0 solo si pasan todos)
 - Interfaz oficial: `uv run python -m kivora --inbox data/inbox --reference data/reference --out output`
 
 ## No se toca
 
-- `data/inbox/` y `deliveries/`, nunca. Los problemas de los datos se resuelven en el pipeline.
+- `data/inbox/`, `data/reference/` y `deliveries/`, nunca. Los problemas de los datos se resuelven en el pipeline.
 - Las entregas solo se reciben con `uv run python tasks.py deliver N`, en un commit propio.
 - La interfaz `python -m kivora` y sus opciones y valores por defecto.
 - El código no se modifica sin una especificación aprobada en `docs/specs/`.

@@ -31,6 +31,26 @@
 Resumen: 7 aceptados (H1, H2, H3, H10, H11, H12, H13), 1 parcial (H5) y 5 rechazados (H4, H6,
 H7, H8, H9).
 
+## Aplicación
+
+- **Código (`d450965`).**
+  - H1: `kivora/customer_metrics.py` (`_content`) y `reference_calc.py` (`akey`, `parse_float=Decimal`).
+  - H2: `_instant_key` en el pipeline y `tkey` en la referencia.
+  - H3: `test_quality_checks_detect_bad_data` y `test_failed_check_still_exits_with_zero`.
+  - H5: `sql/` en `WATCHED`.
+  - Notas fechadas en R9 (KIV-102) y R2 (KIV-101), y escenarios S13 y S14 en el oráculo. Los dos
+    se comprueban sobre la salida y sobre la referencia.
+  - Evidencia: antes del cambio, los tests nuevos de H1 y H2 daban `5 failed`. Después,
+    `uv run python tasks.py test` da `40 passed` y `acceptance` da `70 PASS, 0 FAIL`.
+  - Prueba de mutación: con la comparación como texto en el pipeline, S13 y S14 fallan
+    (`salida: …99.00…`). Con la referencia mutada, fallan en la referencia (`referencia: …`).
+- **Documentación (commit siguiente).**
+  - H10: descripción de `acceptance` en `CLAUDE.md`, `README.md`, `tasks.py` y `AGENTS.md`.
+  - H11: `README.md` reescrito.
+  - H12: nota de estado en `docs/specs/KIV-101/spec.md`.
+  - H13: `data/reference/` en «No se toca» de `CLAUDE.md`.
+  - `docs/report.md` §2: `sql/` en el hook y la limitación de H5.
+
 ## Lectura
 
 - Los dos hallazgos de código más graves (H1 y H2) no los veía el oráculo. Tanto el pipeline

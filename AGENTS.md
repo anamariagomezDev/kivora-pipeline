@@ -10,15 +10,15 @@ Si este archivo y `CLAUDE.md` discrepan, manda `CLAUDE.md`.
 - Ejecutar el pipeline: `uv run python tasks.py run`
 - Tests: `uv run python tasks.py test`
 - Comprobar la salida: `uv run python tasks.py check`
-- Oráculo de KIV-101: `uv run python tasks.py acceptance` (código 0 solo si pasan todos)
+- Oráculo de KIV-101 y KIV-102: `uv run python tasks.py acceptance` (código 0 solo si pasan todos)
 - Interfaz oficial: `uv run python -m kivora --inbox data/inbox --reference data/reference --out output`
 
 Un trabajo está terminado cuando `test`, `check` y `acceptance` están en verde.
 
 ## No se toca
 
-- `data/inbox/` y `deliveries/`, nunca (tampoco `data/reference/`). Los problemas de los
-  datos se resuelven en el pipeline.
+- `data/inbox/`, `data/reference/` y `deliveries/`, nunca. Los problemas de los datos se
+  resuelven en el pipeline.
 - Las entregas solo se reciben con `uv run python tasks.py deliver N`, en un commit propio.
 - La interfaz `python -m kivora` y sus opciones y valores por defecto.
 - El código no se modifica sin una especificación aprobada en `docs/specs/`.
