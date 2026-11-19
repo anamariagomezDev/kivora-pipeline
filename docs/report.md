@@ -22,24 +22,24 @@
 
 
 
-Archivos: `.claude/settings.json` (permisos y registro del hook, compartido con el equipo) y `.claude/hooks/protect_inputs.py`. Lo que no está ni en `allow` ni en `deny` (editar archivos, `git commit`, `uv sync`...) **pregunta** cada vez.
+Archivos: `.claude/settings.json` (permisos y registro de los hooks, compartido con el equipo), `.claude/hooks/protect_inputs.py` y `.claude/hooks/require_acceptance.py`. Lo que no está ni en `allow` ni en `deny` (editar archivos, `git commit`, `uv sync`...) **pregunta** cada vez.
 
 #### Tabla de protecciones
 
 | Riesgo | Mecanismo | Tipo | Por qué ese tipo |
 |---|---|---|---|
-| Modificar los datos de entrada (`data/inbox/`, `data/reference/`, `deliveries/`) con las herramientas de edición | Hook `PreToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|NotebookEdit` (`.claude/settings.json:41-45`), respaldado por `CLAUDE.md:24` | Hook (+ instrucción) | Los permisos filtran por herramienta y patrón, pero aquí hay que decidir por la ruta normalizada (relativa, absoluta, `..`, mayúsculas en Windows). El hook lo hace con código y es determinista; la instrucción sola se puede ignorar |
+| Modificar los datos de entrada (`data/inbox/`, `data/reference/`, `deliveries/`) con las herramientas de edición | Hook `PreToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|NotebookEdit` (`.claude/settings.json:41-45`), respaldado por `CLAUDE.md:32` | Hook (+ instrucción) | Los permisos filtran por herramienta y patrón, pero aquí hay que decidir por la ruta normalizada (relativa, absoluta, `..`, mayúsculas en Windows). El hook lo hace con código y es determinista; la instrucción sola se puede ignorar |
 | Modificar los datos de entrada desde la shell (`Set-Content`, `Copy-Item`, `git checkout -- data/...`) | Ninguno automático: esos comandos no están en `allow`, así que piden permiso | Permiso (preguntar) | Limitación conocida: el hook no inspecciona comandos de shell. Reconocer rutas dentro de un comando arbitrario por patrones no es fiable; la red de seguridad es revisar cada petición |
-| Recibir una entrega fuera de su fase | `deny` de `tasks.py deliver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y reconocible por prefijo: el deny lo bloquea siempre. La entrega la ejecuto yo con `!`, en su commit propio |
-| Subir o reescribir el historial | `deny` de `git push*`, `git reset --hard*`, `git rebase*` en Bash y PowerShell (`.claude/settings.json:26-28`, `30-32`); `CLAUDE.md:29` | Permiso (deny) + instrucción | Comandos con prefijo fijo: el permiso es la herramienta justa y no depende de que el agente lo recuerde |
+| Recibir una entrega fuera de su fase | `deny` de `tasks.py deliver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `CLAUDE.md:33` | Permiso (deny) | Es un comando concreto y reconocible por prefijo: el deny lo bloquea siempre. La entrega la ejecuto yo con `!`, en su commit propio |
+| Subir o reescribir el historial | `deny` de `git push*`, `git reset --hard*`, `git rebase*` en Bash y PowerShell (`.claude/settings.json:26-28`, `30-32`); `CLAUDE.md:37` | Permiso (deny) + instrucción | Comandos con prefijo fijo: el permiso es la herramienta justa y no depende de que el agente lo recuerde |
 | Borrar archivos | `deny` de `rm -rf*` en Bash y PowerShell y de `Remove-Item -Recurse*` en PowerShell (`.claude/settings.json:29`, `33-34`); el resto de `Remove-Item` no está permitido y pregunta | Permiso (deny / preguntar) | El borrado recursivo no tiene vuelta atrás, se prohíbe; el resto de borrados se aprueban uno a uno |
 | Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.json:35`); `settings.json` no contiene claves | Permiso (deny) | Bloquea la lectura con la herramienta Read aunque Read esté permitido en general (deny gana a allow). Leerlo por shell (`cat`, `Get-Content`) no está permitido y pregunta |
-| Dar el trabajo por terminado sin verificar | Sección "Cuándo está terminado un trabajo" (`CLAUDE.md:31-34`) y `allow` de `test`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-18`) | Instrucción (+ permiso) | Es un criterio de cierre, no una acción que se pueda bloquear. Permitir esos comandos sin preguntar hace barato verificar. Se reforzará en la fase 4 con `acceptance` como señal de parada |
+| Dar el trabajo por terminado sin verificar | Sección "Cuándo está terminado un trabajo" (`CLAUDE.md:39-45`), `allow` de `test`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-18`) y hook `Stop` `require_acceptance.py` (`.claude/settings.json:50-60`) | Instrucción + hook (+ permiso) | La instrucción fija el criterio completo; el permiso hace barato verificar. El hook convierte `acceptance` en señal de parada: si hay cambios en código, tests o specs y el oráculo está en rojo, el agente no puede cerrar el turno |
 | Perder el control de lo que se ejecuta (comandos encadenados, scripts nuevos) | Lista `allow` corta: solo lectura, `tasks.py test/run/check/acceptance` y `git status/diff/log` (`.claude/settings.json:4-22`) | Permiso (allow) | Se permite sin preguntar solo lo que no modifica nada fuera de `output/` y se repite mucho (fases 1 y 2); lo demás pasa por mí |
 
 #### Mecanismo de extensión: hook `protect_inputs.py`
 
-- **Qué problema resuelve.** `CLAUDE.md:24` prohíbe tocar `data/inbox/` y `deliveries/`, y `data/reference/` (tipos de cambio) tampoco debe tocarse. Ante datos anómalos (como los de KIV-101), lo más rápido para un agente es "arreglar" el CSV en vez de tratar el caso en el pipeline; así los tests pasan pero el pipeline sigue sin tratar ese caso.
+- **Qué problema resuelve.** `CLAUDE.md:32` prohíbe tocar `data/inbox/` y `deliveries/`, y `data/reference/` (tipos de cambio) tampoco debe tocarse. Ante datos anómalos (como los de KIV-101), lo más rápido para un agente es "arreglar" el CSV en vez de tratar el caso en el pipeline; así los tests pasan pero el pipeline sigue sin tratar ese caso.
 - **Por qué un hook.** Se ejecuta antes de cada `Write`, `Edit`, `MultiEdit` o `NotebookEdit`, recibe la ruta destino por stdin y la normaliza (relativa o absoluta, `..`, separadores y mayúsculas de Windows). Si cae dentro de una carpeta protegida sale con código 2 y el motivo en stderr, que Claude Code le muestra al agente. Si el JSON no se puede leer, bloquea (falla cerrado).
 - **Qué aporta frente a pedírselo al agente.** Una instrucción en CLAUDE.md se puede ignorar u olvidar en una sesión larga o tras compactar el contexto; el hook es determinista: se ejecuta siempre, sea cual sea el modelo o la sesión, y no depende de que yo revise cada diff. Además le explica al agente el motivo y la alternativa (resolverlo en el pipeline).
 - **Prueba real** (PowerShell, `$env:CLAUDE_PROJECT_DIR` = raíz del repo, `... | python .claude/hooks/protect_inputs.py; $LASTEXITCODE`):
@@ -56,6 +56,26 @@ Archivos: `.claude/settings.json` (permisos y registro del hook, compartido con 
 
   En el primer intento todas las pruebas salían con 2, incluida `docs/report.md`: PowerShell 5.1 antepone un BOM UTF-8 al stdin y el hook no lo aceptaba. Si solo se hubiera mirado el caso del inbox, habría parecido que funcionaba. Se corrigió leyendo stdin como `utf-8-sig` y se repitieron las pruebas.
 - **Límite.** Solo cubre las herramientas de edición; las escrituras desde Bash/PowerShell dependen del permiso (preguntar) y de mi revisión.
+
+#### Segundo mecanismo de extensión: hook `Stop` `require_acceptance.py`
+
+- **Qué problema resuelve.** `CLAUDE.md:39-42` exige `test`, `check` y `acceptance` en verde antes de dar algo por terminado, pero nada impedía que el agente cerrara el turno con "listo" tras un cambio en `kivora/` sin haber ejecutado el oráculo, o tras ejecutarlo y ver un FAIL que creía ajeno a su cambio.
+- **Por qué un hook.** El evento `Stop` se dispara justo cuando el agente va a terminar su respuesta, que es el momento exacto que hay que vigilar. El hook (`.claude/hooks/require_acceptance.py`) sale con 0 si `stop_hook_active` es true (línea 49, evita el bucle de continuar indefinidamente) o si `git status --porcelain` no muestra cambios en `kivora/`, `tests/`, `tasks.py` ni `docs/specs/` (línea 20; así no añade un minuto a cada respuesta de solo lectura o de documentación). Si los hay, ejecuta `uv run python tasks.py acceptance` en `CLAUDE_PROJECT_DIR`; si falla, escribe las líneas `FAIL` en stderr y sale con 2 (línea 75), y Claude Code se las devuelve al agente para que siga corrigiendo. Lee stdin como `utf-8-sig` (línea 43), igual que `protect_inputs.py`. Ante un JSON ilegible deja parar (sale con 0 avisando): fallar cerrado en un hook `Stop` podría dejar al agente sin poder terminar nunca.
+- **Qué aporta frente a pedírselo al agente.** La instrucción depende de que el agente la recuerde y de que juzgue bien si un FAIL "es suyo"; el hook no juzga: ejecuta el oráculo siempre que hay cambios relevantes y le pone delante el escenario que falla. Cubre `acceptance`, que es la comprobación más fuerte (incluye el diferencial con `reference_calc.py`); `test` y `check` siguen como instrucción, para no alargar más la parada.
+- **Prueba real** (PowerShell, `$env:CLAUDE_PROJECT_DIR` = raíz del repo, `'<json>' | python .claude/hooks/require_acceptance.py; $LASTEXITCODE`, con el BOM que antepone PowerShell):
+
+| Caso | Código de salida |
+|---|---|
+| (a) `{"stop_hook_active": true}` | 0 |
+| (b) `{"stop_hook_active": false}`, cambios solo en `.claude/` | 0 (sin ejecutar `acceptance`) |
+| (c) igual, con un defecto temporal en `kivora/customer_metrics.py:56` (`amount / rate` en vez de `amount * rate`) | 2, con 8 líneas `FAIL` en stderr (E2, E9, E15, E17, E18, E24 y los dos diferenciales con `reference_calc.py`) |
+
+  Después de (c) se deshizo el defecto y `git diff --quiet -- kivora/` salió con 0.
+- **Límite.** Solo se dispara al final de un turno del agente principal; no cubre `test` ni `check`, y si los cambios ya están commiteados no ve diferencias en `git status` (se confía en que el commit se hizo con todo en verde, como pide `CLAUDE.md:39-42`).
+
+#### Ampliación: `AGENTS.md`
+
+`AGENTS.md` (raíz) es una versión breve para otras herramientas de agentes que no leen `CLAUDE.md`: remite a `CLAUDE.md` como fuente de verdad y repite los comandos verificados y la lista de lo que no se toca. Es solo instrucción: los hooks y permisos de `.claude/` no se aplican fuera de Claude Code.
 
 
 
