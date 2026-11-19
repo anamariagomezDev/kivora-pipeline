@@ -1,0 +1,2195 @@
+ ▐▛███▛█   Claude Code v2.1.325
+▝▜██████▀  Opus 5.5 · Claude Pro
+ ▝▝   ▝▝   ~\proyectos\kivora-pipeline
+
+▎ [✻] [✻] [✻] · Share Claude Code and earn $10 in usage credits · /passes
+
+> Fase 3 de assignment.md: preparar al agente. Vamos justos de tiempo: hazlo en 
+  un solo paso, sin tocar kivora/, sql/, tests/ ni data/.                       
+                                                                                
+  Basándote en el ejemplo de clase (hook protect_inbox.py del repo de demos:    
+  PreToolUse que lee el JSON de stdin y sale con código 2 si la ruta está       
+  protegida), crea:                                                             
+  1. .claude/hooks/protect_inputs.py: hook PreToolUse para                      
+  Write|Edit|MultiEdit|NotebookEdit que bloquea (exit 2, motivo en stderr)      
+  cualquier ruta dentro de data/inbox/, data/reference/ o deliveries/.          
+  2. .claude/settings.json con:                                                 
+     - allow: Read, Grep, Glob, "Bash(uv run python tasks.py test*)", "Bash(uv  
+  run python tasks.py run*)", "Bash(uv run python tasks.py check*)", "Bash(uv   
+  run python tasks.py acceptance*)", "Bash(git status*)", "Bash(git diff*)",    
+  "Bash(git log*)" y sus equivalentes PowerShell(...).                          
+     - deny: "Bash(uv run python tasks.py deliver*)", "PowerShell(uv run python 
+  tasks.py deliver*)", "Bash(git push*)", "Bash(git reset --hard*)", "Bash(git  
+  rebase*)", "Bash(rm -rf*)", "Read(./.env)".                                   
+     - el hook registrado con "python                                           
+  \"$CLAUDE_PROJECT_DIR/.claude/hooks/protect_inputs.py\"".                     
+       Sin claves ni secretos.                                                  
+  3. Prueba el hook de verdad: ejecútalo pasándole por stdin un JSON con        
+  file_path data/inbox/2026-09-01/orders.csv (debe salir 2) y otro con          
+  docs/report.md (debe salir 0). Enséñame los dos códigos de salida.            
+  4. En docs/report.md, sustituye "_(fase 3)_" de la sección 2 por: la tabla de 
+  protecciones (riesgo | mecanismo | tipo: instrucción, permiso, hook o         
+  aislamiento | por qué ese tipo), cubriendo al menos: modificar datos de       
+  entrada, recibir una entrega fuera de su fase, subir o reescribir el          
+  historial, borrar archivos, leer secretos y dar el trabajo por terminado sin  
+  verificar (CLAUDE.md). Y para el hook: qué problema resuelve, por qué un hook 
+  y qué aporta frente a pedírselo al agente (una instrucción en CLAUDE.md se    
+  puede ignorar; el hook es determinista). No borres nada de lo que ya hay en   
+  report.md.                                                                    
+  5. Haz un commit con .claude/ y docs/report.md, mensaje en español y tu       
+  Co-Authored-By. Sin push ni tag.                                              
+
+  Read 2 files, ran 1 shell command (ctrl+o to expand)
+
+● Write(.claude\hooks\protect_inputs.py)
+  ⎿  Wrote 64 lines to .claude\hooks\protect_inputs.py
+       1 """Hook PreToolUse: impide que el agente escriba en los datos de
+          entrada.
+       2 
+       3 Se registra para Write|Edit|MultiEdit|NotebookEdit. Lee el JSON 
+         del evento por
+       4 stdin y, si la ruta destino cae dentro de una carpeta protegida,
+          sale con
+       5 código 2 y deja el motivo en stderr (Claude Code bloquea la llam
+         ada y se lo
+       6 muestra al agente). En cualquier otro caso sale con 0.
+     … +58 lines (ctrl+o to expand)
+
+● Write(.claude\settings.json)
+  ⎿  Wrote 46 lines to .claude\settings.json
+       1 {
+       2   "$schema": "https://json.schemastore.org/claude-code-settings.
+         json",
+       3   "permissions": {
+       4     "allow": [
+       5       "Read",
+       6       "Grep",
+       7       "Glob",
+       8       "Bash(uv run python tasks.py test*)",
+       9       "Bash(uv run python tasks.py run*)",
+     … +37 lines (ctrl+o to expand)
+
+● Ahora pruebo el hook de verdad, con el mismo comando python que usa
+  settings.json:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● El primer intento fue inválido porque PowerShell 5.1 añade un BOM al stdin y
+  el hook bloqueó todo, incluido docs/report.md. Ajusto el hook para aceptar el
+  BOM y vuelvo a probar. · summary
+
+● Update(.claude\hooks\protect_inputs.py)
+  ⎿  Added 3 lines, removed 2 lines
+      35  
+      36  def main() -> int:
+      37      try:
+      38 -        event = json.load(sys.stdin)                           
+      39 -    except json.JSONDecodeError as exc:                        
+      38 +        # utf-8-sig: tolera el BOM que antepone PowerShell 5.1 
+         +al redirigir stdin.                                            
+      39 +        event = json.loads(sys.stdin.buffer.read().decode("utf-
+         +8-sig"))                                                       
+      40 +    except (json.JSONDecodeError, UnicodeDecodeError) as exc:  
+      41          # Ante una entrada ilegible, mejor bloquear que dejar p
+          asar.
+      42          print(f"protect_inputs: JSON de entrada no válido ({exc
+          })", file=sys.stderr)
+      43          return 2
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Hook verificado. Busco las líneas de CLAUDE.md para citar evidencias en la
+  memoria:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Update(docs\report.md)
+  ⎿  Added 34 lines, removed 1 line
+      32  
+      33  
+      34  
+      35 -\_(fase 3)\_                                                   
+      35 +Archivos: `.claude/settings.json` (permisos y registro del hook
+         +, compartido con el equipo) y `.claude/hooks/protect_inputs.py`
+         +. Lo que no está ni en `allow` ni en `deny` (editar archivos, `
+         +git commit`, `uv sync`, `git push` desde PowerShell...) **pregu
+         +nta** cada vez.                                                
+      36  
+      37 +#### Tabla de protecciones                                     
+      38  
+      39 +| Riesgo | Mecanismo | Tipo | Por qué ese tipo |               
+      40 +|---|---|---|---|                                              
+      41 +| Modificar los datos de entrada (`data/inbox/`, `data/referenc
+         +e/`, `deliveries/`) con las herramientas de edición | Hook `Pre
+         +ToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|Not
+         +ebookEdit` (`.claude/settings.json:36-40`), respaldado por `CLA
+         +UDE.md:24` | Hook (+ instrucción) | Los permisos filtran por he
+         +rramienta y patrón, pero aquí hay que decidir por la ruta norma
+         +lizada (relativa, absoluta, `..`, mayúsculas en Windows). El ho
+         +ok lo hace con código y es determinista; la instrucción sola se
+         + puede ignorar |                                               
+      42 +| Modificar los datos de entrada desde la shell (`Set-Content`,
+         + `Copy-Item`, `git checkout -- data/...`) | Ninguno automático:
+         + esos comandos no están en `allow`, así que piden permiso | Per
+         +miso (preguntar) | Limitación conocida: el hook no inspecciona 
+         +comandos de shell. Reconocer rutas dentro de un comando arbitra
+         +rio por patrones no es fiable; la red de seguridad es revisar c
+         +ada petición |                                                 
+      43 +| Recibir una entrega fuera de su fase | `deny` de `tasks.py de
+         +liver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `
+         +CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y recon
+         +ocible por prefijo: el deny lo bloquea siempre. La entrega la e
+         +jecuto yo con `!`, en su commit propio |                       
+      44 +| Subir o reescribir el historial | `deny` de `git push*`, `git
+         + reset --hard*`, `git rebase*` en Bash (`.claude/settings.json:
+         +26-28`); `CLAUDE.md:29` | Permiso (deny) + instrucción | Comand
+         +os con prefijo fijo: el permiso es la herramienta justa y no de
+         +pende de que el agente lo recuerde. En PowerShell no están en `
+         +allow`, así que preguntan |                                    
+      45 +| Borrar archivos | `deny` de `rm -rf*` (`.claude/settings.json
+         +:29`); `Remove-Item` no está permitido y pregunta | Permiso (de
+         +ny / preguntar) | El borrado recursivo no tiene vuelta atrás, s
+         +e prohíbe; el resto de borrados se aprueban uno a uno |        
+      46 +| Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.j
+         +son:30`); `settings.json` no contiene claves | Permiso (deny) |
+         + Bloquea la lectura con la herramienta Read aunque Read esté pe
+         +rmitido en general (deny gana a allow). Leerlo por shell (`cat`
+         +, `Get-Content`) no está permitido y pregunta |                
+      47 +| Dar el trabajo por terminado sin verificar | Sección "Cuándo 
+         +está terminado un trabajo" (`CLAUDE.md:31-34`) y `allow` de `te
+         +st`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-1
+         +8`) | Instrucción (+ permiso) | Es un criterio de cierre, no un
+         +a acción que se pueda bloquear. Permitir esos comandos sin preg
+         +untar hace barato verificar. Se reforzará en la fase 4 con `acc
+         +eptance` como señal de parada |                                
+      48 +| Perder el control de lo que se ejecuta (comandos encadenados,
+         + scripts nuevos) | Lista `allow` corta: solo lectura, `tasks.py
+         + test/run/check/acceptance` y `git status/diff/log` (`.claude/s
+         +ettings.json:4-22`) | Permiso (allow) | Se permite sin pregunta
+         +r solo lo que no modifica nada fuera de `output/` y se repite m
+         +ucho (fases 1 y 2); lo demás pasa por mí |                     
+      49  
+      50 +#### Mecanismo de extensión: hook `protect_inputs.py`          
+      51 +                                                               
+      52 +- **Qué problema resuelve.** `CLAUDE.md:24` prohíbe tocar `data
+         +/inbox/` y `deliveries/`, y `data/reference/` (tipos de cambio)
+         + tampoco debe tocarse. Ante datos anómalos (como los de KIV-101
+         +), lo más rápido para un agente es "arreglar" el CSV en vez de 
+         +tratar el caso en el pipeline; así los tests pasan pero el pipe
+         +line sigue sin tratar ese caso.                                
+      53 +- **Por qué un hook.** Se ejecuta antes de cada `Write`, `Edit`
+         +, `MultiEdit` o `NotebookEdit`, recibe la ruta destino por stdi
+         +n y la normaliza (relativa o absoluta, `..`, separadores y mayú
+         +sculas de Windows). Si cae dentro de una carpeta protegida sale
+         + con código 2 y el motivo en stderr, que Claude Code le muestra
+         + al agente. Si el JSON no se puede leer, bloquea (falla cerrado
+         +).                                                             
+      54 +- **Qué aporta frente a pedírselo al agente.** Una instrucción 
+         +en CLAUDE.md se puede ignorar u olvidar en una sesión larga o t
+         +ras compactar el contexto; el hook es determinista: se ejecuta 
+         +siempre, sea cual sea el modelo o la sesión, y no depende de qu
+         +e yo revise cada diff. Además le explica al agente el motivo y 
+         +la alternativa (resolverlo en el pipeline).                    
+      55 +- **Prueba real** (PowerShell, `$env:CLAUDE_PROJECT_DIR` = raíz
+         + del repo, `... | python .claude/hooks/protect_inputs.py; $LAST
+         +EXITCODE`):                                                    
+      56 +                                                               
+      57 +| Entrada (`tool_input`) | Código de salida |                  
+      58 +|---|---|                                                      
+      59 +| `file_path: data/inbox/2026-09-01/orders.csv` (Write) | 2 (bl
+         +oqueado) |                                                     
+      60 +| `file_path: docs/report.md` (Edit) | 0 (permitido) |         
+      61 +| `file_path: docs\..\DATA\Reference\fx_rates.csv` | 2 |       
+      62 +| `file_path: <ruta absoluta>/deliveries/2/orders.csv` | 2 |   
+      63 +| `notebook_path: data/inbox/x.ipynb` (NotebookEdit) | 2 |     
+      64 +| `file_path: data/inbox_notes.md` (prefijo parecido, fuera de 
+         +la carpeta) | 0 |                                              
+      65 +| stdin que no es JSON | 2 |                                   
+      66 +                                                               
+      67 +  En el primer intento todas las pruebas salían con 2, incluida
+         + `docs/report.md`: PowerShell 5.1 antepone un BOM UTF-8 al stdi
+         +n y el hook no lo aceptaba. Si solo se hubiera mirado el caso d
+         +el inbox, habría parecido que funcionaba. Se corrigió leyendo s
+         +tdin como `utf-8-sig` y se repitieron las pruebas.             
+      68 +- **Límite.** Solo cubre las herramientas de edición; las escri
+         +turas desde Bash/PowerShell dependen del permiso (preguntar) y 
+         +de mi revisión.                                                
+      69 +                                                               
+      70 +                                                               
+      71 +                                                               
+      72  \## 3. Ciclo de iteración
+      73  
+      74  
+
+● Antes del commit, compruebo que test y check siguen en verde (lo exige
+  CLAUDE.md para cerrar):
+
+  Made 1 scratchpad edit +13, committed b881b4b, ran 1 shell command (ctrl+o to expand)
+  ⎿  PostToolUse:PowerShell says: Tip: Run /ultrareview before you push to catch
+     bugs with a cloud-based multi-agent review — 3 free reviews left.
+
+● Está hecho, en el commit b881b4b (sin push ni tag). Tiene los tres archivos:
+  .claude/settings.json, .claude/hooks/protect_inputs.py y docs/report.md. No he
+  tocado kivora/, sql/, tests/ ni data/.
+
+  Códigos de salida del hook (le pasé el JSON por stdin con python, el mismo
+  comando que registra settings.json):
+
+  ┌──────────────────────────────────┬───────────────────────────────────────┐
+  │             Entrada              │           Código de salida            │
+  ├──────────────────────────────────┼───────────────────────────────────────┤
+  │ data/inbox/2026-09-01/orders.csv │ 2 (bloqueado, con el motivo en        │
+  │                                  │ stderr)                               │
+  ├──────────────────────────────────┼───────────────────────────────────────┤
+  │ docs/report.md                   │ 0                                     │
+  └──────────────────────────────────┴───────────────────────────────────────┘
+
+  Probé también otros casos. Bloquea una ruta escrita con .. y mayúsculas
+  (docs\..\DATA\Reference\fx_rates.csv), una ruta absoluta a deliveries/, un
+  notebook_path dentro del inbox y una entrada que no es JSON: todos dan 2.
+  data/inbox_notes.md da 0, porque solo se parece al nombre y está fuera de la
+  carpeta.
+
+  Un fallo que tuve que corregir: en el primer intento todo salía con 2, también
+  docs/report.md. PowerShell 5.1 añade una marca invisible (BOM) al principio
+  del texto que manda por stdin, y el hook no sabía leerla. Si solo hubiera
+  mirado el caso del inbox, habría parecido que funcionaba. Lo corregí para que
+  acepte esa marca, repetí todas las pruebas y lo dejé anotado en la memoria.
+
+  En docs/report.md cambié solo la línea _(fase 3)_; lo demás sigue igual. Ahora
+  la sección 2 tiene la tabla de protecciones, con cada protección citada con
+  su archivo:línea, y el apartado del hook con sus pruebas.
+
+  Límites que dejé anotados en la memoria:
+  - El hook solo vigila las herramientas de edición. Si el agente escribiera en
+    los datos desde la terminal (por ejemplo con Set-Content), el hook no lo
+    pararía; lo que lo para es que esos comandos no están permitidos y piden
+    permiso.
+  - git push, git reset --hard, git rebase y rm -rf solo están prohibidos en
+    Bash, como pediste. En PowerShell no están permitidos, así que preguntarían
+    antes de ejecutarse, pero no están prohibidos. Si quieres, añado sus
+    equivalentes PowerShell(...) a la lista de prohibidos.
+
+  tasks.py test (4 tests) y tasks.py check pasan sin errores. Te queda poner el
+  tag phase-3 cuando lo des por bueno.
+
+  Una cosa aparte: las tablas que ya había en report.md tienen una línea en
+  blanco entre cada fila, y así en Markdown no se ven como tablas. No las he
+  tocado porque pediste no cambiar nada de lo que ya había.
+
+✻ Crunched for 1m 57s · done 20:24
+
+> Sí: añade a deny los equivalentes PowerShell de git push, git reset --hard,   
+  git rebase y rm -rf. Y en docs/report.md quita las líneas en blanco entre     
+  filas de las tablas, sin cambiar el contenido. Comprueba que el JSON de       
+  settings sigue siendo válido y haz un commit. Sin push ni tag.                
+
+● Update(.claude\settings.json)
+  ⎿  Added 5 lines
+      27        "Bash(git reset --hard*)",
+      28        "Bash(git rebase*)",
+      29        "Bash(rm -rf*)",
+      30 +      "PowerShell(git push*)",                                 
+      31 +      "PowerShell(git reset --hard*)",                         
+      32 +      "PowerShell(git rebase*)",                               
+      33 +      "PowerShell(rm -rf*)",                                   
+      34 +      "PowerShell(Remove-Item -Recurse*)",                     
+      35        "Read(./.env)"
+      36      ]
+      37    },
+
+  Made 1 scratchpad edit +26, ran 1 shell command (ctrl+o to expand)
+
+● Solo se quitaron 20 líneas en blanco, sin cambios de contenido; ahora hay que
+  actualizar las citas settings.json:N de la memoria, que se desplazaron, y dos
+  filas que dicen que esos comandos "preguntan" en PowerShell. · summary
+
+  Searched for 2 patterns, read 1 file (ctrl+o to expand)
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      28  
+      29  | Riesgo | Mecanismo | Tipo | Por qué ese tipo |
+      30  |---|---|---|---|
+      31 -| Modificar los datos de entrada (`data/inbox/`, `data/referenc
+         -e/`, `deliveries/`) con las herramientas de edición | Hook `Pre
+         -ToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|Not
+         -ebookEdit` (`.claude/settings.json:36-40`), respaldado por `CLA
+         -UDE.md:24` | Hook (+ instrucción) | Los permisos filtran por he
+         -rramienta y patrón, pero aquí hay que decidir por la ruta norma
+         -lizada (relativa, absoluta, `..`, mayúsculas en Windows). El ho
+         -ok lo hace con código y es determinista; la instrucción sola se
+         - puede ignorar |                                               
+      31 +| Modificar los datos de entrada (`data/inbox/`, `data/referenc
+         +e/`, `deliveries/`) con las herramientas de edición | Hook `Pre
+         +ToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|Not
+         +ebookEdit` (`.claude/settings.json:41-45`), respaldado por `CLA
+         +UDE.md:24` | Hook (+ instrucción) | Los permisos filtran por he
+         +rramienta y patrón, pero aquí hay que decidir por la ruta norma
+         +lizada (relativa, absoluta, `..`, mayúsculas en Windows). El ho
+         +ok lo hace con código y es determinista; la instrucción sola se
+         + puede ignorar |                                               
+      32  | Modificar los datos de entrada desde la shell (`Set-Content`,
+           `Copy-Item`, `git checkout -- data/...`) | Ninguno automático:
+           esos comandos no están en `allow`, así que piden permiso | Per
+          miso (preguntar) | Limitación conocida: el hook no inspecciona 
+          comandos de shell. Reconocer rutas dentro de un comando arbitra
+          rio por patrones no es fiable; la red de seguridad es revisar c
+          ada petición |
+      33  | Recibir una entrega fuera de su fase | `deny` de `tasks.py de
+          liver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `
+          CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y recon
+          ocible por prefijo: el deny lo bloquea siempre. La entrega la e
+          jecuto yo con `!`, en su commit propio |
+      34  | Subir o reescribir el historial | `deny` de `git push*`, `git
+           reset --hard*`, `git rebase*` en Bash (`.claude/settings.json:
+          26-28`); `CLAUDE.md:29` | Permiso (deny) + instrucción | Comand
+          os con prefijo fijo: el permiso es la herramienta justa y no de
+          pende de que el agente lo recuerde. En PowerShell no están en `
+          allow`, así que preguntan |
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      22  
+      23  
+      24  
+      25 -Archivos: `.claude/settings.json` (permisos y registro del hook
+         -, compartido con el equipo) y `.claude/hooks/protect_inputs.py`
+         -. Lo que no está ni en `allow` ni en `deny` (editar archivos, `
+         -git commit`, `uv sync`, `git push` desde PowerShell...) **pregu
+         -nta** cada vez.                                                
+      25 +Archivos: `.claude/settings.json` (permisos y registro del hook
+         +, compartido con el equipo) y `.claude/hooks/protect_inputs.py`
+         +. Lo que no está ni en `allow` ni en `deny` (editar archivos, `
+         +git commit`, `uv sync`...) **pregunta** cada vez.              
+      26  
+      27  #### Tabla de protecciones
+      28  
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      31  | Modificar los datos de entrada (`data/inbox/`, `data/referenc
+          e/`, `deliveries/`) con las herramientas de edición | Hook `Pre
+          ToolUse` `protect_inputs.py` sobre `Write\|Edit\|MultiEdit\|Not
+          ebookEdit` (`.claude/settings.json:41-45`), respaldado por `CLA
+          UDE.md:24` | Hook (+ instrucción) | Los permisos filtran por he
+          rramienta y patrón, pero aquí hay que decidir por la ruta norma
+          lizada (relativa, absoluta, `..`, mayúsculas en Windows). El ho
+          ok lo hace con código y es determinista; la instrucción sola se
+           puede ignorar |
+      32  | Modificar los datos de entrada desde la shell (`Set-Content`,
+           `Copy-Item`, `git checkout -- data/...`) | Ninguno automático:
+           esos comandos no están en `allow`, así que piden permiso | Per
+          miso (preguntar) | Limitación conocida: el hook no inspecciona 
+          comandos de shell. Reconocer rutas dentro de un comando arbitra
+          rio por patrones no es fiable; la red de seguridad es revisar c
+          ada petición |
+      33  | Recibir una entrega fuera de su fase | `deny` de `tasks.py de
+          liver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `
+          CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y recon
+          ocible por prefijo: el deny lo bloquea siempre. La entrega la e
+          jecuto yo con `!`, en su commit propio |
+      34 -| Subir o reescribir el historial | `deny` de `git push*`, `git
+         - reset --hard*`, `git rebase*` en Bash (`.claude/settings.json:
+         -26-28`); `CLAUDE.md:29` | Permiso (deny) + instrucción | Comand
+         -os con prefijo fijo: el permiso es la herramienta justa y no de
+         -pende de que el agente lo recuerde. En PowerShell no están en `
+         -allow`, así que preguntan |                                    
+      34 +| Subir o reescribir el historial | `deny` de `git push*`, `git
+         + reset --hard*`, `git rebase*` en Bash y PowerShell (`.claude/s
+         +ettings.json:26-28`, `30-32`); `CLAUDE.md:29` | Permiso (deny) 
+         ++ instrucción | Comandos con prefijo fijo: el permiso es la her
+         +ramienta justa y no depende de que el agente lo recuerde |     
+      35  | Borrar archivos | `deny` de `rm -rf*` (`.claude/settings.json
+          :29`); `Remove-Item` no está permitido y pregunta | Permiso (de
+          ny / preguntar) | El borrado recursivo no tiene vuelta atrás, s
+          e prohíbe; el resto de borrados se aprueban uno a uno |
+      36  | Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.j
+          son:30`); `settings.json` no contiene claves | Permiso (deny) |
+           Bloquea la lectura con la herramienta Read aunque Read esté pe
+          rmitido en general (deny gana a allow). Leerlo por shell (`cat`
+          , `Get-Content`) no está permitido y pregunta |
+      37  | Dar el trabajo por terminado sin verificar | Sección "Cuándo 
+          está terminado un trabajo" (`CLAUDE.md:31-34`) y `allow` de `te
+          st`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-1
+          8`) | Instrucción (+ permiso) | Es un criterio de cierre, no un
+          a acción que se pueda bloquear. Permitir esos comandos sin preg
+          untar hace barato verificar. Se reforzará en la fase 4 con `acc
+          eptance` como señal de parada |
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      32  | Modificar los datos de entrada desde la shell (`Set-Content`,
+           `Copy-Item`, `git checkout -- data/...`) | Ninguno automático:
+           esos comandos no están en `allow`, así que piden permiso | Per
+          miso (preguntar) | Limitación conocida: el hook no inspecciona 
+          comandos de shell. Reconocer rutas dentro de un comando arbitra
+          rio por patrones no es fiable; la red de seguridad es revisar c
+          ada petición |
+      33  | Recibir una entrega fuera de su fase | `deny` de `tasks.py de
+          liver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `
+          CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y recon
+          ocible por prefijo: el deny lo bloquea siempre. La entrega la e
+          jecuto yo con `!`, en su commit propio |
+      34  | Subir o reescribir el historial | `deny` de `git push*`, `git
+           reset --hard*`, `git rebase*` en Bash y PowerShell (`.claude/s
+          ettings.json:26-28`, `30-32`); `CLAUDE.md:29` | Permiso (deny) 
+          + instrucción | Comandos con prefijo fijo: el permiso es la her
+          ramienta justa y no depende de que el agente lo recuerde |
+      35 -| Borrar archivos | `deny` de `rm -rf*` (`.claude/settings.json
+         -:29`); `Remove-Item` no está permitido y pregunta | Permiso (de
+         -ny / preguntar) | El borrado recursivo no tiene vuelta atrás, s
+         -e prohíbe; el resto de borrados se aprueban uno a uno |        
+      35 +| Borrar archivos | `deny` de `rm -rf*` en Bash y PowerShell y 
+         +de `Remove-Item -Recurse*` en PowerShell (`.claude/settings.jso
+         +n:29`, `33-34`); el resto de `Remove-Item` no está permitido y 
+         +pregunta | Permiso (deny / preguntar) | El borrado recursivo no
+         + tiene vuelta atrás, se prohíbe; el resto de borrados se aprueb
+         +an uno a uno |                                                 
+      36  | Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.j
+          son:30`); `settings.json` no contiene claves | Permiso (deny) |
+           Bloquea la lectura con la herramienta Read aunque Read esté pe
+          rmitido en general (deny gana a allow). Leerlo por shell (`cat`
+          , `Get-Content`) no está permitido y pregunta |
+      37  | Dar el trabajo por terminado sin verificar | Sección "Cuándo 
+          está terminado un trabajo" (`CLAUDE.md:31-34`) y `allow` de `te
+          st`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-1
+          8`) | Instrucción (+ permiso) | Es un criterio de cierre, no un
+          a acción que se pueda bloquear. Permitir esos comandos sin preg
+          untar hace barato verificar. Se reforzará en la fase 4 con `acc
+          eptance` como señal de parada |
+      38  | Perder el control de lo que se ejecuta (comandos encadenados,
+           scripts nuevos) | Lista `allow` corta: solo lectura, `tasks.py
+           test/run/check/acceptance` y `git status/diff/log` (`.claude/s
+          ettings.json:4-22`) | Permiso (allow) | Se permite sin pregunta
+          r solo lo que no modifica nada fuera de `output/` y se repite m
+          ucho (fases 1 y 2); lo demás pasa por mí |
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      33  | Recibir una entrega fuera de su fase | `deny` de `tasks.py de
+          liver*` en Bash y PowerShell (`.claude/settings.json:24-25`); `
+          CLAUDE.md:25` | Permiso (deny) | Es un comando concreto y recon
+          ocible por prefijo: el deny lo bloquea siempre. La entrega la e
+          jecuto yo con `!`, en su commit propio |
+      34  | Subir o reescribir el historial | `deny` de `git push*`, `git
+           reset --hard*`, `git rebase*` en Bash y PowerShell (`.claude/s
+          ettings.json:26-28`, `30-32`); `CLAUDE.md:29` | Permiso (deny) 
+          + instrucción | Comandos con prefijo fijo: el permiso es la her
+          ramienta justa y no depende de que el agente lo recuerde |
+      35  | Borrar archivos | `deny` de `rm -rf*` en Bash y PowerShell y 
+          de `Remove-Item -Recurse*` en PowerShell (`.claude/settings.jso
+          n:29`, `33-34`); el resto de `Remove-Item` no está permitido y 
+          pregunta | Permiso (deny / preguntar) | El borrado recursivo no
+           tiene vuelta atrás, se prohíbe; el resto de borrados se aprueb
+          an uno a uno |
+      36 -| Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.j
+         -son:30`); `settings.json` no contiene claves | Permiso (deny) |
+         - Bloquea la lectura con la herramienta Read aunque Read esté pe
+         -rmitido en general (deny gana a allow). Leerlo por shell (`cat`
+         -, `Get-Content`) no está permitido y pregunta |                
+      36 +| Leer secretos | `deny` de `Read(./.env)` (`.claude/settings.j
+         +son:35`); `settings.json` no contiene claves | Permiso (deny) |
+         + Bloquea la lectura con la herramienta Read aunque Read esté pe
+         +rmitido en general (deny gana a allow). Leerlo por shell (`cat`
+         +, `Get-Content`) no está permitido y pregunta |                
+      37  | Dar el trabajo por terminado sin verificar | Sección "Cuándo 
+          está terminado un trabajo" (`CLAUDE.md:31-34`) y `allow` de `te
+          st`, `check`, `acceptance` (`.claude/settings.json:8-11`, `15-1
+          8`) | Instrucción (+ permiso) | Es un criterio de cierre, no un
+          a acción que se pueda bloquear. Permitir esos comandos sin preg
+          untar hace barato verificar. Se reforzará en la fase 4 con `acc
+          eptance` como señal de parada |
+      38  | Perder el control de lo que se ejecuta (comandos encadenados,
+           scripts nuevos) | Lista `allow` corta: solo lectura, `tasks.py
+           test/run/check/acceptance` y `git status/diff/log` (`.claude/s
+          ettings.json:4-22`) | Permiso (allow) | Se permite sin pregunta
+          r solo lo que no modifica nada fuera de `output/` y se repite m
+          ucho (fases 1 y 2); lo demás pasa por mí |
+      39  
+
+● Valido el JSON, compruebo que las líneas citadas son las correctas y hago el
+  commit:
+  Made 1 scratchpad edit +10, committed 77f6685, ran 1 shell command (ctrl+o to expand)
+
+● Está hecho, en el commit 77f6685 (sin push ni tag). El JSON de settings sigue
+  siendo válido: Python lo carga sin errores y ahora tiene 12 reglas en deny.
+
+  .claude/settings.json: he añadido a deny PowerShell(git push*), PowerShell(git
+  reset --hard*), PowerShell(git rebase*) y PowerShell(rm -rf*). También añadí
+  PowerShell(Remove-Item -Recurse*), que no me pediste: rm en PowerShell es otro
+  nombre de Remove-Item, y es la forma en que realmente se borra una carpeta
+  entera. Si prefieres no tenerla, la quito.
+
+  docs/report.md:
+  - He quitado las 20 líneas en blanco que había entre filas de las tablas. Lo
+    comprobé con un git diff que no cuenta las líneas en blanco: sale vacío, así
+    que el texto no ha cambiado.
+  - Al añadir 5 líneas a settings.json, las citas settings.json:N de la memoria
+    apuntaban a líneas equivocadas. Las he corregido y he comprobado una por una
+    que cada número señala la regla que nombra (el hook ahora está en :41-45 y
+    .env en :35).
+  - Había tres frases que decían que esos comandos solo "preguntaban" en
+    PowerShell, y ya no es cierto. Las actualicé: la de "Lo que no está ni en
+    allow ni en deny…" y las filas de historial y de borrado.
+
+  He vuelto a probar el hook después del cambio y sigue bloqueando el inbox
+  (código de salida 2).
+
+✻ Crunched for 59s · done 20:28
+
+> Sí: añade a deny los equivalentes PowerShell de git push, git reset --hard,   
+  git rebase y rm -rf. Y en docs/report.md quita las líneas en blanco entre     
+  filas de las tablas, sin cambiar el contenido. Comprueba que el JSON de       
+  settings sigue siendo válido y haz un commit. Sin push ni tag.                
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Este mensaje es el mismo que el anterior, y ese cambio ya está en el commit
+  77f6685. No he hecho un commit nuevo porque no había nada que cambiar. Lo he
+  comprobado ahora mismo:
+
+  - Repositorio: el último commit es 77f6685 y no hay cambios sin guardar.
+  - Settings: el JSON es válido y deny ya incluye PowerShell(git push*),
+    PowerShell(git reset --hard*), PowerShell(git rebase*) y PowerShell(rm 
+    -rf*). Además están PowerShell(Remove-Item -Recurse*) y la regla de tasks.py
+    deliver que ya había.
+  - docs/report.md: ya no queda ninguna línea en blanco entre filas de las
+    tablas.
+
+  Si querías pedir otra cosa, dímelo.
+
+✻ Cooked for 11s · done 20:31
+
+> git tag phase-3                                                               
+  git push origin main --tags                                                   
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● He creado el tag phase-3 sobre el último commit, 77f6685.
+
+  El push no lo he hecho, y no por decisión propia. La regla PowerShell(git 
+  push*) que acabamos de añadir a deny me impide ejecutarlo, y no voy a buscar
+  la forma de saltármela: esa regla es lo que te asegura que el agente nunca
+  sube nada por su cuenta. Ejecútalo tú escribiendo esto en el prompt:
+
+  ! git push origin main --tags
+
+  Se subirán los commits de la fase 3 (b881b4b y 77f6685) y los tags. phase-1 y
+  phase-2 ya deberían estar en el remoto.
+
+✻ Cooked for 11s · done 20:31
+
+> claude                                                                        
+
+● No sé qué quieres hacer con "claude". ¿Lo escribiste sin querer o ibas a pedir
+  algo?
+
+  Ahora mismo la fase 3 está así:
+  - Commits: b881b4b y 77f6685 están hechos.
+  - Tag: phase-3 está creado en local.
+  - Push: falta subirlo. Puedes hacerlo tú escribiendo en el prompt ! git push 
+    origin main --tags.
+
+  Si querías abrir Claude Code en otra terminal, el comando claude se escribe en
+  la terminal, no en este chat.
+
+✻ Cooked for 4s · done 20:33
+
+> Fase 4 de assignment.md: implementar KIV-101 siguiendo                        
+  docs/specs/KIV-101/plan.md (revisado) y spec.md. Vamos muy justos de tiempo   
+  (entrega hoy a las 23:59): prioriza que funcione y cumpla la especificación,  
+  sin extras.                                                                   
+  Reglas: no toques data/, deliveries/, sql/ ni la interfaz de python -m        
+  kivora. No modifiques tests/test_pipeline.py. Responde en español. Confirma   
+  que lo has entendido y espera la segunda parte.                               
+
+● Entendido. Espero la segunda parte antes de leer o tocar nada.
+
+  Esto es lo que he entendido:
+
+  - Objetivo: implementar KIV-101 siguiendo docs/specs/KIV-101/spec.md y la
+    versión revisada del plan.md. Lo primero es que funcione y cumpla la
+    especificación, sin extras, porque se entrega hoy a las 23:59.
+  - No toco: data/, deliveries/, sql/, la interfaz de python -m kivora (con sus
+    opciones y valores por defecto) ni tests/test_pipeline.py.
+  - Puedo escribir en: kivora/, tests nuevos en otros archivos, tasks.py (para
+    la tarea acceptance que pide la fase 4) y la documentación afectada.
+  - Para darlo por terminado: test, check y acceptance en verde, y en la
+    documentación cada afirmación con su evidencia.
+  - Respondo siempre en español.
+
+  Te aviso de una cosa ahora para no perder tiempo después. Si al leer el plan
+  alguna tarea necesita cambiar sql/ o recibir una entrega con tasks.py deliver,
+  me paro y te lo pregunto en lugar de buscar un rodeo. La entrega no podría
+  hacerla yo de todos modos, porque ese comando está prohibido en settings.json.
+
+✻ Crunched for 8s · done 20:34
+
+> Hazlo en 4 bloques, con un commit por bloque (mensaje en español y            
+  Co-Authored-By), ejecutando tras cada uno "uv run python tasks.py test" y,    
+  desde el bloque 1, "uv run python tasks.py acceptance". Usa su salida como    
+  feedback hasta que pase:                                                      
+  Bloque 1 (T1+T3): tarea acceptance en tasks.py (sobre una copia temporal de   
+  los días 2026-09-01..07, como dice el plan) y tests/test_customer_metrics.py  
+  con los 7 tests mínimos y los adicionales del plan. Commit con todo en rojo y 
+  enséñame la salida.                                                           
+  Bloque 2 (T2+T4+T5+T6): carga de refunds.json, pedidos, importes en EUR,      
+  fecha en Madrid y devoluciones.                                               
+  Bloque 3 (T7+T8+T9): métricas, salidas, quality_report.json, check e          
+  integración en pipeline.run. Al final, test y acceptance en verde.            
+  Bloque 4 (T10): introduce a mano 3 defectos (sin desempate de última versión, 
+  UTC+2 fijo, sin deduplicar refund_id), enséñame qué test falla con cada uno   
+  y deshazlos sin commit.                                                       
+  Al terminar: actualiza README.md y CLAUDE.md (salidas nuevas y comando        
+  acceptance), docs/sources.md (refunds.json), la Respuesta de                  
+  docs/tickets/KIV-101.md para Finanzas con las cifras de E18, y en             
+  docs/report.md la sección 4 (trazabilidad R → escenario → test) y una fila    
+  por cada vuelta real en la sección 3. Último commit. Sin push ni tag.         
+
+● Empiezo leyendo el plan, la especificación y el código actual.
+
+  Read 2 files, ran 3 shell commands (ctrl+o to expand)
+
+● Ya tengo el contexto: spec, plan, código, datos y §4 del enunciado. Empiezo el
+  bloque 1 (T1 + T3). Primero los tests:
+
+● Write(tests\test_customer_metrics.py)
+  ⎿  Wrote 425 lines to tests\test_customer_metrics.py
+       1 """Tests de KIV-101: daily_customer_metrics, rejected.csv y qual
+         ity_report.json.
+       2 
+       3 Datos sintéticos en tmp_path, nunca data/inbox/. Los ids R*, E* 
+         y S* son los de
+       4 docs/specs/KIV-101/spec.md.
+       5 """
+       6 
+       7 import csv
+       8 import hashlib
+     … +417 lines (ctrl+o to expand)
+
+● Ahora el oráculo kivora/acceptance.py:
+
+● Write(kivora\acceptance.py)
+  ⎿  Wrote 466 lines to kivora\acceptance.py
+       1 """Oráculo de KIV-101 (python tasks.py acceptance).
+       2 
+       3 Comprueba los escenarios de docs/specs/KIV-101/spec.md §5 y §6:
+       4 
+       5 0. Copia a una carpeta temporal solo los días 2026-09-01 .. 2026
+         -09-07 de data/inbox/.
+       6 1. Ejecuta `python -m kivora` dos veces sobre esa copia (run1 y 
+         run2).
+       7 2. Columnas de los tres ficheros nuevos.
+       8 3. Filas literales de E1–E17, ausencias de E2 y E11, totales y r
+     … +459 lines (~20 KB) (ctrl+o to expand)
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 1 line, removed 1 line
+      224          header = (run1 / "daily_customer_metrics.csv").read_te
+           xt(encoding="utf-8").split("\n")[0]
+      225          assert header == ",".join(METRIC_COLUMNS), f"cabecera 
+           de métricas: {header!r}"
+      226          header = (run1 / "rejected.csv").read_text(encoding="u
+           tf-8").split("\n")[0]
+      227 -        assert header.split(",") == ["source", "record_id", "r
+          -eason", "inbox_day", "detail"], (                             
+      227 +        assert header.split(",") == REJECTED_COLUMNS, (       
+      228              f"cabecera de rejected.csv: {header!r}")
+      229          report = quality(run1)
+      230          assert list(report) == ["checks"], f"claves de quality
+           _report.json: {list(report)}"
+
+● Update(tasks.py)
+  ⎿  Added 5 lines
+      54      return _module("kivora.check")
+      55  
+      56  
+      57 +def acceptance(_):                                             
+      58 +    """KIV-101 acceptance scenarios (spec §5-§6) on a temporary
+         + copy of days 09-01..09-07."""                                 
+      59 +    return _module("kivora.acceptance")                        
+      60 +                                                               
+      61 +                                                               
+      62  def reset(_):
+      63      """Delete output/."""
+      64      target = ROOT / "output"
+
+● Update(tasks.py)
+  ⎿  Added 1 line
+      104      "run": run,
+      105      "test": test,
+      106      "check": check,
+      107 +    "acceptance": acceptance,                                 
+      108      "reset": reset,
+      109      "deliver": deliver,
+      110  }
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Con utf-8-sig, reference_calc.py da las mismas cifras de E18. Ejecuto el rojo
+  del bloque 1:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Los 20 tests nuevos fallan como debían, y E1–E18 pasan sobre el oráculo;
+  aclaro el mensaje confuso "S1: código 0:" antes del commit, ya que en realidad
+  el fichero no existe. · summary
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 3 lines, removed 1 line
+      334      lines = metric_lines(out_s) if ok_s else []
+      335  
+      336      def need_s():
+      337 -        assert ok_s, f"código {result.returncode}: {result.std
+          -err.strip()[-300:]}"                                          
+      337 +        assert ok_s, (f"código {result.returncode}, rejected.c
+          +sv "                                                          
+      338 +                      f"{'existe' if (out_s / 'rejected.csv').
+          +exists() else 'no existe'}: "                                 
+      339 +                      f"{result.stderr.strip()[-300:]}")      
+      340  
+      341      @scenario("S1")
+      342      def s1():
+
+● Update(kivora\acceptance.py)
+  ⎿  Added 6 lines, removed 1 line
+      390      ok_t = result_t.returncode == 0 and (out_t / "rejected.csv
+           ").exists()
+      391      rej_t = rejected_tuples(out_t) if ok_t else []
+      392  
+      393 +    def need_t():                                             
+      394 +        assert ok_t, (f"código {result_t.returncode}, rejected
+          +.csv "                                                        
+      395 +                      f"{'existe' if (out_t / 'rejected.csv').
+          +exists() else 'no existe'}: "                                 
+      396 +                      f"{result_t.stderr.strip()[-300:]}")    
+      397 +                                                              
+      398      @scenario("S5")
+      399      def s5():
+      395 -        assert ok_t, f"código {result_t.returncode}: {result_t
+          -.stderr.strip()[-300:]}"                                      
+      400 +        need_t()                                              
+      401          for item in [("refunds", "R-5", d1, "conflicting_dupli
+           cate"),
+      402                       ("refunds", "R-5", d2, "conflicting_dupli
+           cate")]:
+      403              assert item in rej_t, f"falta {item}"
+● Update(kivora\acceptance.py)
+  ⎿  Added 1 line, removed 1 line
+      405  
+      406      @scenario("S6")
+      407      def s6():
+      408 -        assert ok_t, f"código {result_t.returncode}"          
+      408 +        need_t()                                              
+      409          assert ("refunds", "R-6", d1, "currency_mismatch") in 
+           rej_t, f"{rej_t}"
+      410      s6()
+      411  
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Cada test falla por la razón esperada. Commit del bloque 1 (en rojo):
+
+  Made 1 scratchpad edit +18, ran 1 shell command (ctrl+o to expand)
+
+● Bloque 1 terminó con 20 tests fallidos y 11 aceptaciones fallidas, aunque los
+  19 PASS corresponden solo a la autocomprobación del oráculo. Ahora guardo la
+  huella de daily_sales.csv con el código actual para verificar después que no
+  cambia, y luego paso al bloque 2. · summary
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(kivora\ingest.py)
+  ⎿  Added 52 lines, removed 6 lines
+      1  """Load the raw sources into SQLite, as text, without cleaning a
+         nything."""
+      2  
+      3  import csv
+      4 +import json                                                     
+      5 +from decimal import Decimal                                     
+      6  from pathlib import Path
+      7  
+      8  SOURCES = {
+     ...
+      11      "customers": ["customer_id", "name", "country", "signup_dat
+          e"],
+      12      "payments": ["payment_id", "order_id", "paid_at", "method",
+           "status", "amount"],
+      13  }
+      14 +REFUND_FIELDS = ["refund_id", "order_id", "refunded_at", "amoun
+         +t", "currency"]                                                
+      15 +# `_raw`: the whole JSON object, canonical, to compare duplicat
+         +es by content (R9).                                            
+      16 +REFUND_COLUMNS = REFUND_FIELDS + ["_raw"]                      
+      17  
+      18  
+      19 +class InputError(Exception):                                   
+      20 +    """An input file that cannot be read (spec R1, A19). The me
+         +ssage names the file."""                                       
+      21 +                                                               
+      22 +                                                               
+      23  def _create(conn, table, columns):
+      24      conn.execute(f"DROP TABLE IF EXISTS {table}")
+      25      conn.execute(f"CREATE TABLE {table} ({', '.join(c + ' TEXT'
+           for c in columns)})")
+      26  
+      27  
+      28 +def _as_text(value):                                           
+      29 +    """JSON value -> TEXT, keeping decimals exactly as written 
+         +(no float)."""                                                 
+      30 +    if value is None or isinstance(value, str):                
+      31 +        return value                                           
+      32 +    if isinstance(value, bool):                                
+      33 +        return json.dumps(value)                               
+      34 +    if isinstance(value, (int, Decimal)):                      
+      35 +        return str(value)                                      
+      36 +    return json.dumps(value, sort_keys=True, default=str, ensur
+         +e_ascii=False)                                                 
+      37 +                                                               
+      38 +                                                               
+      39 +def read_refunds(path):                                        
+      40 +    """Rows of refunds.json: missing file or [] -> no rows; inv
+         +alid JSON -> InputError."""                                    
+      41 +    path = Path(path)                                          
+      42 +    if not path.exists():                                      
+      43 +        return []                                              
+      44 +    try:                                                       
+      45 +        data = json.loads(path.read_text(encoding="utf-8-sig"),
+         + parse_float=Decimal)                                          
+      46 +    except (json.JSONDecodeError, UnicodeDecodeError) as exc:  
+      47 +        raise InputError(f"{path}: no es JSON válido ({exc})") 
+         +from exc                                                       
+      48 +    if not isinstance(data, list):                             
+      49 +        raise InputError(f"{path}: se esperaba una lista de dev
+         +oluciones")                                                    
+      50 +    rows = []                                                  
+      51 +    for pos, item in enumerate(data):                          
+      52 +        if not isinstance(item, dict):                         
+      53 +            raise InputError(f"{path}: el elemento {pos} no es 
+         +un objeto")                                                    
+      54 +        raw = json.dumps(item, sort_keys=True, default=str, ens
+         +ure_ascii=False)                                               
+      55 +        rows.append([_as_text(item.get(f)) for f in REFUND_FIEL
+         +DS] + [raw])                                                   
+      56 +    return rows                                                
+      57 +                                                               
+      58 +                                                               
+      59  def load_inbox(conn, inbox):
+      20 -    """One raw_<source> table per source, with the day folder i
+         -n `_day`."""                                                   
+      60 +    """One raw_<source> table per source, with the day folder i
+         +n `_day` and the                                               
+      61 +    position of the row (or JSON element) in its file in `_pos`
+         +."""                                                           
+      62      for name, columns in SOURCES.items():
+      22 -        _create(conn, f"raw_{name}", columns + ["_day"])       
+      63 +        _create(conn, f"raw_{name}", columns + ["_day", "_pos"]
+         +)                                                              
+      64 +    _create(conn, "raw_refunds", REFUND_COLUMNS + ["_day", "_po
+         +s"])                                                           
+      65      days = sorted(p for p in Path(inbox).iterdir() if p.is_dir(
+          ))
+      66      for day in days:
+      67          for name, columns in SOURCES.items():
+      68              path = day / f"{name}.csv"
+      69              if not path.exists():
+      70                  continue
+      29 -            with open(path, encoding="utf-8", newline="") as fh
+         -:                                                              
+      30 -                rows = [[row[c] for c in columns] + [day.name] 
+         -for row in csv.DictReader(fh)]                                 
+      31 -            placeholders = ", ".join("?" for _ in range(len(col
+         -umns) + 1))                                                    
+      71 +            with open(path, encoding="utf-8-sig", newline="") a
+         +s fh:                                                          
+      72 +                rows = [[row[c] for c in columns] + [day.name, 
+         +pos]                                                           
+      73 +                        for pos, row in enumerate(csv.DictReade
+         +r(fh))]                                                        
+      74 +            placeholders = ", ".join("?" for _ in range(len(col
+         +umns) + 2))                                                    
+      75              conn.executemany(f"INSERT INTO raw_{name} VALUES ({
+          placeholders})", rows)
+      76 +        refunds = [row + [day.name, pos] for pos, row in enumer
+         +ate(read_refunds(day / "refunds.json"))]                       
+      77 +        placeholders = ", ".join("?" for _ in range(len(REFUND_
+         +COLUMNS) + 2))                                                 
+      78 +        conn.executemany(f"INSERT INTO raw_refunds VALUES ({pla
+         +ceholders})", refunds)                                         
+      79      conn.commit()
+      80      return [d.name for d in days]
+      81  
+      82  
+      83  def load_reference(conn, reference):
+      84      _create(conn, "ref_fx_rates", ["currency", "rate_to_eur"])
+      39 -    with open(Path(reference) / "fx_rates.csv", encoding="utf-8
+         -", newline="") as fh:                                          
+      85 +    with open(Path(reference) / "fx_rates.csv", encoding="utf-8
+         +-sig", newline="") as fh:                                      
+      86          rows = [[row["currency"], row["rate_to_eur"]] for row i
+          n csv.DictReader(fh)]
+      87      conn.executemany("INSERT INTO ref_fx_rates VALUES (?, ?)", 
+          rows)
+      88      conn.commit()
+
+● Update(kivora\__main__.py)
+  ⎿  Added 6 lines, removed 1 line
+      24                          help="carpeta de salida (por defecto: o
+          utput)")
+      25      args = parser.parse_args(argv)
+      26      sys.stdout.reconfigure(encoding="utf-8")
+      27 -    run(args.inbox, args.reference, args.out)                  
+      27 +    try:                                                       
+      28 +        run(args.inbox, args.reference, args.out)              
+      29 +    except InputError as exc:  # unreadable input (spec R1): st
+         +op, naming the file                                            
+      30 +        sys.stderr.reconfigure(encoding="utf-8")               
+      31 +        print(f"Error de entrada: {exc}", file=sys.stderr)     
+      32 +        return 2                                               
+      33      return 0
+      34  
+      35  
+
+● Update(kivora\__main__.py)
+  ⎿  Added 1 line
+      10  import sys
+      11  from pathlib import Path
+      12  
+      13 +from kivora.ingest import InputError                           
+      14  from kivora.pipeline import run
+      15  
+      16  
+
+● Ahora kivora/customer_metrics.py con las reglas de pedidos, importes, fechas y
+  devoluciones (T4–T6), como funciones puras:
+
+● Write(kivora\customer_metrics.py)
+  ⎿  Wrote 234 lines to kivora\customer_metrics.py
+       1 """KIV-101: sales, refunds, rejections and daily customer metric
+         s.
+       2 
+       3 Pure functions, no I/O. Rows are dicts with the raw TEXT columns
+          of the raw_* tables
+       4 plus `_day` (inbox folder) and `_pos` (position in its file). Re
+         quirement ids (R*) are
+       5 those of docs/specs/KIV-101/spec.md.
+       6 """
+       7 
+     … +227 lines (ctrl+o to expand)
+
+● Ejecuto test y acceptance, y hago las comprobaciones de T2 del plan. Además,
+  una comprobación rápida de las funciones nuevas sobre los datos reales (aún no
+  están integradas en el pipeline):
+
+  Made 1 scratchpad edit +21, ran 1 shell command (ctrl+o to expand)
+  ⎿  1 action not run · permission denied
+     │ Reason: Permission to use PowerShell with command uv run python tasks.py run; (Get-FileHash output/daily_sales.csv).Hash -eq '57A5FF5F1EE917B7AA8448ACC4F77747F09558A7BBCC9FB2CFFB165332B89DEF'; (Get-FileHash …
+
+● Se ha denegado, seguramente por el Remove-Item -Recurse que añadimos a deny en
+  la fase 3. Lo repito sin borrar nada: la carpeta del S7 va al scratchpad con
+  un nombre nuevo.
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Las funciones coinciden con las cifras de E18 (156 ventas, 6 rechazos), y
+  ahora ejecuto test y acceptance. · summary
+
+  Made 1 scratchpad edit +20, ran 2 shell commands (ctrl+o to expand)
+
+● Bloque 2 hecho (4df50db). Bloque 3 (T7 + T8 + T9): agregación, controles,
+  salidas, integración y check.
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 2 lines, removed 1 line
+       5  those of docs/specs/KIV-101/spec.md.
+       6  """
+       7  
+       8 -from collections import defaultdict                            
+       8 +from bisect import bisect_right                                
+       9 +from collections import Counter, defaultdict                   
+      10  from datetime import datetime
+      11  from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+      12  from zoneinfo import ZoneInfo
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Write(kivora\outputs.py)
+  ⎿  Wrote 47 lines to kivora\outputs.py
+       1 """KIV-101 outputs with the format of spec §3.4 (UTF-8 without B
+         OM, '\\n', two decimals)."""
+       2 
+       3 import csv
+       4 import json
+       5 from decimal import Decimal
+       6 from pathlib import Path
+       7 
+       8 from kivora.customer_metrics import METRIC_COLUMNS
+       9 
+     … +38 lines (ctrl+o to expand)
+
+● Write(kivora\pipeline.py)
+  ⎿  Added 20 lines, removed 2 lines
+       4  import sqlite3
+       5  from pathlib import Path
+       6  
+       7 -from kivora import ingest                                      
+       7 +from kivora import customer_metrics, ingest, outputs           
+       8  
+       9  ROOT = Path(__file__).resolve().parent.parent
+      10  SQL_DIR = ROOT / "sql"
+     ...
+      12  # Executed in this order. Each script creates the tables named 
+          after it.
+      13  SCRIPTS = ["staging.sql", "daily_sales.sql", "top_customers.sql
+          "]
+      14  EXPORTS = ["daily_sales", "top_customers"]
+      15 +# KIV-101 (docs/specs/KIV-101/spec.md §3), computed in Python b
+         +y kivora/customer_metrics.py.                                  
+      16 +KIV101_OUTPUTS = ["daily_customer_metrics.csv", "rejected.csv",
+         + "quality_report.json"]                                        
+      17  
+      18  
+      19  def export_table(conn, table, path):
+     ...
+      25          writer.writerows(cursor.fetchall())
+      26  
+      27  
+      28 +def _rows(conn, table):                                        
+      29 +    cursor = conn.execute(f"SELECT * FROM {table}")            
+      30 +    names = [column[0] for column in cursor.description]       
+      31 +    return [dict(zip(names, values)) for values in cursor.fetch
+         +all()]                                                         
+      32 +                                                               
+      33 +                                                               
+      34  def run(inbox, reference, out):
+      35      out = Path(out)
+      36      out.mkdir(parents=True, exist_ok=True)
+     ...
+      46          for table in EXPORTS:
+      47              export_table(conn, table, out / f"{table}.csv")
+      48          orders = conn.execute("SELECT COUNT(*) FROM stg_orders"
+          ).fetchone()[0]
+      49 +        rows, rejected, checks = customer_metrics.compute(     
+      50 +            *(_rows(conn, t) for t in ("raw_orders", "raw_custo
+         +mers", "raw_payments",                                         
+      51 +                                       "raw_refunds", "ref_fx_r
+         +ates")))                                                       
+      52 +        outputs.write_all(conn, out, rows, rejected, checks)   
+      53      finally:
+      54          conn.close()
+      55      print(f"Días procesados: {len(days)} ({days[0]} .. {days[-1
+          ]})" if days else "Sin días.")
+      56      print(f"Pedidos en staging: {orders}")
+      45 -    print(f"Salida en {out}/: " + ", ".join(f"{t}.csv" for t in
+         - EXPORTS))                                                     
+      57 +    print(f"Salida en {out}/: " + ", ".join([f"{t}.csv" for t i
+         +n EXPORTS] + KIV101_OUTPUTS))                                  
+      58 +    print(f"daily_customer_metrics: {len(rows)} filas; rejected
+         +: {len(rejected)} registros")                                  
+      59 +    failed = [c for c in checks if not c["passed"]]            
+      60 +    for check in failed:                                       
+      61 +        print(f"AVISO control {check['name']}: {check['failed_r
+         +ecords']} registros lo incumplen")                             
+      62 +    if not failed:                                             
+      63 +        print("Controles de calidad: los 3 pasan")             
+
+● Write(kivora\check.py)
+  ⎿  Added 31 lines
+      1  """Basic checks on output/ (python tasks.py check)."""
+      2  
+      3  import csv
+      4 +import json                                                     
+      5  import sys
+      6  from pathlib import Path
+      7  
+     ...
+       9  EXPECTED = {
+      10      "daily_sales.csv": ["sales_date", "country", "orders_count"
+          , "gross_amount"],
+      11      "top_customers.csv": ["customer_id", "orders_count", "gross
+          _amount"],
+      12 +    # KIV-101 (docs/specs/KIV-101/spec.md §3). net_amount may b
+         +e negative (D1).                                               
+      13 +    "daily_customer_metrics.csv": ["metric_date", "customer_id"
+         +, "country", "orders_count",                                   
+      14 +                                   "gross_amount", "refunded_am
+         +ount", "net_amount",                                           
+      15 +                                   "refunds_count", "last_purch
+         +ase_date"],                                                    
+      16 +    "rejected.csv": ["source", "record_id", "reason", "inbox_da
+         +y", "detail"],                                                 
+      17  }
+      18 +QUALITY_REPORT = "quality_report.json"                         
+      19 +CHECK_NAMES = ["net_equals_gross_minus_refunded", "refunds_with
+         +in_order_total",                                               
+      20 +               "unique_keys_and_orders"]                       
+      21  
+      22  
+      23 +def check_quality_report(path):                                
+      24 +    """Structure only: the three checks, in order, with their t
+         +hree keys."""                                                  
+      25 +    if not path.exists():                                      
+      26 +        return [f"falta {path}: ejecuta antes python tasks.py r
+         +un"]                                                           
+      27 +    try:                                                       
+      28 +        report = json.loads(path.read_text(encoding="utf-8"))  
+      29 +        checks = report["checks"]                              
+      30 +        names = [c["name"] for c in checks]                    
+      31 +    except (ValueError, KeyError, TypeError) as exc:           
+      32 +        return [f"{path.name}: estructura no válida ({exc})"]  
+      33 +    problems = []                                              
+      34 +    if names != CHECK_NAMES:                                   
+      35 +        problems.append(f"{path.name}: controles {names}, se es
+         +peraban {CHECK_NAMES}")                                        
+      36 +    for c in checks:                                           
+      37 +        if not isinstance(c.get("passed"), bool) or not isinsta
+         +nce(c.get("failed_records"), int):                             
+      38 +            problems.append(f"{path.name}: {c.get('name')}: pas
+         +sed/failed_records no válidos")                                
+      39 +    return problems                                            
+      40 +                                                               
+      41 +                                                               
+      42  def main():
+      43      sys.stdout.reconfigure(encoding="utf-8")
+      44      problems = []
+     ...
+      53              if missing:
+      54                  problems.append(f"{name}: faltan columnas {miss
+          ing}")
+      55                  continue
+      56 +            if "gross_amount" not in columns:                  
+      57 +                continue                                       
+      58              for line, row in enumerate(reader, start=2):
+      59                  if float(row["gross_amount"]) < 0:
+      60                      problems.append(f"{name}:{line}: gross_amou
+          nt negativo")
+      61 +    problems += check_quality_report(OUTPUT / QUALITY_REPORT)  
+      62      for problem in problems:
+      63          print(f"FAIL  {problem}")
+      64      if problems:
+
+  Ran 3 shell commands (ctrl+o to expand)
+
+● Todo pasó a la primera (24 tests y 50/50 escenarios); ahora cierro con run,
+  check, la búsqueda de los ids de la muestra en el código y la comprobación de
+  que tests/test_pipeline.py sigue intacto. · summary
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Las tildes rotas son solo cómo lo muestra Get-Content en PowerShell 5.1, que
+  no lee el archivo como UTF-8. El archivo es UTF-8 sin BOM, y acceptance lo
+  comprueba en E19. Commit del bloque 3:
+
+  Made 1 scratchpad edit +20, ran 1 shell command (ctrl+o to expand)
+
+● Bloque 3 está hecho (0031c6c). Ahora para el bloque 4 voy a probar los
+  defectos uno a uno con Edit, ejecutar los tests y deshacer cada cambio antes
+  de seguir; el primero es la falta de desempate por última versión. · summary
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 1 line, removed 1 line
+      88      """R2: per order_id, the greatest updated_at; ties -> later
+           folder, then later row."""
+      89      best = {}
+      90      for row in order_rows:
+      91 -        key = (text(row["updated_at"]), row["_day"], int(row["_
+         -pos"]))                                                        
+      91 +        key = text(row["updated_at"])  # DEFECTO T10-1: sin des
+         +empate por carpeta y fila                                      
+      92          oid = text(row["order_id"])
+      93          if oid not in best or key > best[oid][0]:
+      94              best[oid] = (key, row)
+  Ran 1 shell command (ctrl+o to expand)
+
+● Solo test_latest_version_tie_breaks_by_folder_then_row detecta el defecto 1;
+  Acceptance sigue en 50/50 porque no hay empates de updated_at en la muestra.
+  Lo deshago y sigo con el defecto 2. · summary
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 1 line, removed 1 line
+      88      """R2: per order_id, the greatest updated_at; ties -> later
+           folder, then later row."""
+      89      best = {}
+      90      for row in order_rows:
+      91 -        key = text(row["updated_at"])  # DEFECTO T10-1: sin des
+         -empate por carpeta y fila                                      
+      91 +        key = (text(row["updated_at"]), row["_day"], int(row["_
+         +pos"]))                                                        
+      92          oid = text(row["order_id"])
+      93          if oid not in best or key > best[oid][0]:
+      94              best[oid] = (key, row)
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 2 lines, removed 1 line
+      37  
+      38  def madrid_date(value):
+      39      """R6: natural day in Europe/Madrid, with the time zone dat
+          abase (DST included)."""
+      40 -    return parse_ts(value).astimezone(MADRID).date().isoformat(
+         -)                                                              
+      40 +    from datetime import timedelta, timezone  # DEFECTO T10-2: 
+         +UTC+2 fijo                                                     
+      41 +    return parse_ts(value).astimezone(timezone(timedelta(hours=
+         +2))).date().isoformat()                                        
+      42  
+      43  
+      44  def to_decimal(value):
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● El test de invierno de Madrid es el único que detecta el defecto 2, porque en
+  septiembre el desfase es +2 y el caso de verano y los acceptance pasan igual.
+  Deshago ese cambio y paso al defecto 3. · summary
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 1 line, removed 2 lines
+      37  
+      38  def madrid_date(value):
+      39      """R6: natural day in Europe/Madrid, with the time zone dat
+          abase (DST included)."""
+      40 -    from datetime import timedelta, timezone  # DEFECTO T10-2: 
+         -UTC+2 fijo                                                     
+      41 -    return parse_ts(value).astimezone(timezone(timedelta(hours=
+         -2))).date().isoformat()                                        
+      40 +    return parse_ts(value).astimezone(MADRID).date().isoformat(
+         +)                                                              
+      41  
+      42  
+      43  def to_decimal(value):
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Added 1 line
+      153              continue
+      154          groups[rid].append(row)
+      155      candidates = []
+      156 +    return [r for rid in sorted(groups) for r in groups[rid]],
+          + rejected  # DEFECTO T10-3                                    
+      157      for rid in sorted(groups):
+      158          rows = groups[rid]
+      159          if len({r["_raw"] for r in rows}) > 1:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Los tests test_duplicate_and_conflicting_refunds y cuatro escenarios de
+  aceptación (E10, E18, el diferencial y S5) detectan el defecto 3. Ahora lo
+  deshago y verifico que el código vuelve a estar exactamente igual que en el
+  commit. · summary
+
+● Update(kivora\customer_metrics.py)
+  ⎿  Removed 1 line
+      153              continue
+      154          groups[rid].append(row)
+      155      candidates = []
+      156 -    return [r for rid in sorted(groups) for r in groups[rid]],
+          - rejected  # DEFECTO T10-3                                    
+      156      for rid in sorted(groups):
+      157          rows = groups[rid]
+      158          if len({r["_raw"] for r in rows}) > 1:
+
+  Ran 1 shell command (ctrl+o to expand)
+
+● Bloque 4 hecho: cada defecto hace fallar al menos un test y el árbol vuelve a
+  estar limpio, con 24 passed y 50/50. Ahora la documentación. Leo el ticket y
+  el estado actual de la memoria:
+
+  Read 3 files (ctrl+o to expand)
+
+● Busco los números de línea de los tests y de las funciones para citarlos en la
+  trazabilidad:
+
+  Searched for 1 pattern (ctrl+o to expand)
+
+● Escribo la documentación. Primero CLAUDE.md:
+
+● Update(CLAUDE.md)
+  ⎿  Added 3 lines, removed 2 lines
+       2  
+       3  Pipeline diario de ventas de Kivora, una tienda online, en Pyth
+          on y SQLite.
+       4  
+       5 -- **Entrada:** `data/inbox/<día>/{orders,customers,payments}.cs
+         -v`. Cada día trae solo                                         
+       6 -  registros nuevos o modificados. Las marcas de tiempo vienen e
+         -n UTC.                                                         
+       5 +- **Entrada:** `data/inbox/<día>/{orders,customers,payments}.cs
+         +v` y, desde el 09-04, un                                       
+       6 +  `refunds.json` opcional. Cada día trae solo registros nuevos 
+         +o modificados. Las marcas de                                   
+       7 +  tiempo vienen en UTC.                                        
+       8  - **Importes:** **no** vienen en EUR. Cada pedido trae su moned
+          a y se convierte con
+       9    `data/reference/fx_rates.csv`.
+      10  - **Código:** la carga está en `kivora/` y las transformaciones
+           SQL en `sql/`.
+
+● Update(CLAUDE.md)
+  ⎿  Added 6 lines, removed 3 lines
+       7    tiempo vienen en UTC.
+       8  - **Importes:** **no** vienen en EUR. Cada pedido trae su moned
+          a y se convierte con
+       9    `data/reference/fx_rates.csv`.
+      10 -- **Código:** la carga está en `kivora/` y las transformaciones
+         - SQL en `sql/`.                                                
+      11 -- **Salida:** `output/` (`daily_sales.csv`, `top_customers.csv`
+         - y `warehouse.db`).                                            
+      12 -- **Reglas de negocio:** `docs/sources.md` y `docs/data-contrac
+         -ts/daily_sales.md`.                                            
+      10 +- **Código:** la carga está en `kivora/` y las transformaciones
+         + SQL en `sql/`. KIV-101 se                                     
+      11 +  calcula en Python (`kivora/customer_metrics.py`, `kivora/outp
+         +uts.py`), no en SQL.                                           
+      12 +- **Salida:** `output/` (`daily_sales.csv`, `top_customers.csv`
+         +, `daily_customer_metrics.csv`,                                
+      13 +  `rejected.csv`, `quality_report.json` y `warehouse.db`).     
+      14 +- **Reglas de negocio:** `docs/sources.md`, `docs/data-contract
+         +s/daily_sales.md` y                                            
+      15 +  `docs/specs/KIV-101/spec.md`.                                
+      16  - **Defectos conocidos del código actual:** `docs/analysis.md`.
+      17  
+      18  ## Comandos (verificados; siempre con `uv run`)
+
+● Update(CLAUDE.md)
+  ⎿  Added 4 lines, removed 1 line
+      20  - Preparar el entorno: `uv sync`
+      21  - Ejecutar el pipeline: `uv run python tasks.py run`
+      22  - Tests (pytest): `uv run python tasks.py test`
+      23 -- Comprobar la salida: `uv run python tasks.py check` (solo mir
+         -a las columnas y que `gross_amount >= 0`)                      
+      23 +- Comprobar la salida: `uv run python tasks.py check` (solo mir
+         +a las columnas, que `gross_amount >= 0`                        
+      24 +  y la estructura de `quality_report.json`)                    
+      25 +- Oráculo de KIV-101: `uv run python tasks.py acceptance` (esce
+         +narios E1–E19 y S1–S8 de la spec                               
+      26 +  sobre una copia temporal de los días 09-01..09-07; código 0 s
+         +olo si pasan todos)                                            
+      27  - Interfaz oficial: `uv run python -m kivora --inbox data/inbox
+           --reference data/reference --out output`
+      28  
+      29  ## No se toca
+
+● Update(CLAUDE.md)
+  ⎿  Added 2 lines, removed 2 lines
+      37  
+      38  ## Cuándo está terminado un trabajo
+      39  
+      40 -- `uv run python tasks.py test` y `uv run python tasks.py check
+         -` en verde (y                                                  
+      41 -  `uv run python tasks.py acceptance`, cuando exista).         
+      40 +- `uv run python tasks.py test`, `uv run python tasks.py check`
+         + y                                                             
+      41 +  `uv run python tasks.py acceptance` en verde.                
+      42  - Cada afirmación de la documentación tiene su evidencia: archi
+          vo:línea, o el comando y su resultado.
+      43  - La documentación afectada está actualizada.
+      44  - Los commits hechos por el agente conservan su línea `Co-Autho
+          red-By`.
+
+● Ahora README.md y docs/sources.md:
+
+● Update(README.md)
+  ⎿  Added 4 lines
+      17    Dirección Comercial. Su contrato está en
+      18    [`docs/data-contracts/daily_sales.md`](docs/data-contracts/da
+          ily_sales.md).
+      19  - `top_customers`: los diez clientes que más han comprado.
+      20 +- `daily_customer_metrics`: compras, devoluciones y neto por cl
+         +iente y día, en EUR, para                                      
+      21 +  Finanzas ([KIV-101](docs/tickets/KIV-101.md)). Va acompañada 
+         +de `rejected.csv` (registros                                   
+      22 +  no usados y su motivo) y `quality_report.json` (controles de 
+         +calidad). Su definición está en                                
+      23 +  [`docs/specs/KIV-101/spec.md`](docs/specs/KIV-101/spec.md) §3
+         +.                                                              
+      24  
+      25  El equipo trabaja con agentes de código. La herramienta princip
+          al es
+      26  **Claude Code**.
+
+● Update(README.md)
+  ⎿  Added 1 line
+      66  | `python tasks.py run` | Ejecuta el pipeline sobre `data/inbox
+          /` y escribe `output/` |
+      67  | `python tasks.py test` | Ejecuta los tests |
+      68  | `python tasks.py check` | Comprobaciones básicas sobre `outpu
+          t/` |
+      69 +| `python tasks.py acceptance` | Escenarios de aceptación de KI
+         +V-101 (spec §5–§6) sobre una copia temporal de los días 09-01..
+         +09-07; código 0 solo si pasan todos |                          
+      70  | `python tasks.py deliver N` | Recibe la entrega `N` de la tie
+          nda |
+      71  | `python tasks.py reset` | Borra `output/` |
+      72  
+
+● Update(README.md)
+  ⎿  Added 4 lines, removed 1 line
+      89  │   ├── __main__.py         punto de entrada (python -m kivora)
+      90  │   ├── ingest.py           carga las fuentes en SQLite sin lim
+          piarlas
+      91  │   ├── pipeline.py         orquesta la carga, el SQL y la expo
+          rtación
+      92 -│   └── check.py            comprobaciones básicas de output/  
+      92 +│   ├── customer_metrics.py reglas de KIV-101 (ventas, devoluci
+         +ones, métricas, controles)                                     
+      93 +│   ├── outputs.py          escribe daily_customer_metrics, rej
+         +ected y quality_report                                         
+      94 +│   ├── check.py            comprobaciones básicas de output/  
+      95 +│   └── acceptance.py       oráculo de KIV-101 (python tasks.py
+         + acceptance)                                                   
+      96  ├── sql/                    transformaciones en SQL (SQLite)
+      97  ├── tests/                  tests (pytest)
+      98  ├── data/
+
+● Update(docs\sources.md)
+  ⎿  Added 24 lines
+      49  
+      50  Un pedido puede tener más de un pago.
+      51  
+      52 +## `refunds.json`                                              
+      53 +                                                               
+      54 +Desde el 2026-09-04. Una lista JSON; cada elemento es una devol
+         +ución. Los días sin                                            
+      55 +devoluciones no traen el fichero (ticket `docs/tickets/KIV-101.
+         +md`).                                                          
+      56 +                                                               
+      57 +| Campo | Descripción |                                        
+      58 +| --- | --- |                                                  
+      59 +| `refund_id` | Identificador de la devolución |               
+      60 +| `order_id` | Pedido al que corresponde |                     
+      61 +| `refunded_at` | Momento de la devolución (UTC, ISO 8601 con `
+         +Z`) |                                                          
+      62 +| `amount` | Importe devuelto (número), en la moneda del pedido
+         + |                                                             
+      63 +| `currency` | Moneda (ISO 4217) |                             
+      64 +                                                               
+      65 +Cómo lo trata el pipeline (`docs/specs/KIV-101/spec.md` R1, R8–
+         +R11):                                                          
+      66 +                                                               
+      67 +- Fichero ausente o `[]`: cero devoluciones ese día. Si no es J
+         +SON válido, el pipeline se                                     
+      68 +  detiene con código 2 y un mensaje que nombra el fichero (`kiv
+         +ora/ingest.py:39`,                                             
+      69 +  `kivora/__main__.py:30`).                                    
+      70 +- Los importes se leen como decimales exactos (`parse_float=Dec
+         +imal`), nunca como `float`.                                    
+      71 +- Puede llegar la misma devolución en dos días: la copia idénti
+         +ca se descarta como                                            
+      72 +  `duplicate_refund`; si el contenido difiere, todas sus aparic
+         +iones se rechazan como                                         
+      73 +  `conflicting_duplicate`.                                     
+      74 +- Cada devolución no usada va a `rejected.csv` con su motivo.  
+      75 +                                                               
+      76  ## `data/reference/fx_rates.csv`
+      77  
+      78  Tabla fija de tipos de cambio a euros.
+
+● Update(README.md)  ⎿  Added 3 lines, removed 2 lines
+      27  
+      28  ## Estado actual
+      29  
+      30 -El pipeline funciona con los datos que hay en `data/inbox/` (de
+         -l 1 al 3 de                                                    
+      31 -septiembre de 2026). Los tickets abiertos están en `docs/ticket
+         -s/`:                                                           
+      30 +El pipeline funciona con los datos que hay en `data/inbox/` (de
+         +l 1 al 7 de                                                    
+      31 +septiembre de 2026). Los tickets están en `docs/tickets/`:     
+      32  
+      33  - [KIV-100](docs/tickets/KIV-100.md): incorporación al pipeline
+          .
+      34 +- [KIV-101](docs/tickets/KIV-101.md): devoluciones y métricas d
+         +iarias por cliente.                                            
+      35  
+      36  La tienda envía nuevas entregas de datos con su ticket. Para si
+          mularlo:
+      37  
+
+● Update(docs\tickets\KIV-101.md)
+  ⎿  Added 53 lines
+       66  ## Notas del equipo de datos
+       67  
+       68  ## Respuesta
+       69 +                                                              
+       70 +Hola, Marta:                                                  
+       71 +                                                              
+       72 +Ya está la tabla `daily_customer_metrics`. Cada noche, junto a
+          +l resto, el pipeline deja                                     
+       73 +también `rejected.csv` (lo que no se ha podido usar y por qué)
+          + y `quality_report.json` (los                                 
+       74 +controles de calidad). La definición completa está en `docs/sp
+          +ecs/KIV-101/spec.md`.                                         
+       75 +                                                              
+       76 +**Cifras del 1 al 7 de septiembre** (todo en euros):          
+       77 +                                                              
+       78 +| Concepto | Valor |                                          
+       79 +| --- | --- |                                                 
+       80 +| Ventas contadas | 156 pedidos, cada uno una sola vez |      
+       81 +| Importe bruto | 18 490,74 € |                               
+       82 +| Importe devuelto | 1 264,19 € |                             
+       83 +| Importe neto | 17 226,55 € |                                
+       84 +| Filas cliente-día | 126 (11 solo con devoluciones; 12 con ne
+          +to negativo) |                                                
+       85 +| Controles de calidad | Los 3 pasan, sin registros que los in
+          +cumplan |                                                     
+       86 +                                                              
+       87 +**Registros que no hemos usado (6), y por qué:**              
+       88 +                                                              
+       89 +| Registro | Motivo |                                         
+       90 +| --- | --- |                                                 
+       91 +| Pedido K-10062 | No se llegó a cobrar: sus dos intentos de p
+          +ago fallaron |                                                
+       92 +| Pedido K-10149 | Se canceló el 5 de septiembre |            
+       93 +| Devolución R-1003 | Su pedido (K-19999) no aparece en ningún
+          + fichero de pedidos |                                         
+       94 +| Devolución R-1005 | Es de K-10149, que está cancelado y no c
+          +uenta como venta |                                            
+       95 +| Devolución R-1006 (copia del día 6) | La tienda la envió dos
+          + veces; se cuenta una sola vez |                              
+       96 +| Devolución R-1009 | Con ella se devolverían 110 $ de un pedi
+          +do de 100 $ (K-10148); se rechaza entera |                    
+       97 +                                                              
+       98 +**Criterios que conviene conocer:**                           
+       99 +                                                              
+      100 +- **Euros:** cada pedido y cada devolución se convierte con la
+          + tabla de tipos de cambio                                     
+      101 +  (GBP 1,17; USD 0,92) y se redondea a céntimos importe a impo
+          +rte.                                                          
+      102 +- **Día:** el día natural en Madrid, con horario de verano. Un
+          +a compra a las 23:50 UTC cuenta                               
+      103 +  al día siguiente.                                           
+      104 +- **Devoluciones:** cuentan el día en que se devuelve el diner
+          +o, no el de la compra. Por eso                                
+      105 +  hay días con neto negativo (por ejemplo, C020 el 4 de septie
+          +mbre: −21,83 €). Así las cifras                               
+      106 +  de días ya cerrados no cambian.                             
+      107 +- **Pedidos modificados:** se usa siempre la última versión. U
+          +n pedido que se cancela deja de                               
+      108 +  contar.                                                     
+      109 +- **Clientes sin país:** aparecen como `UNKNOWN`; su compra no
+          + se pierde.                                                   
+      110 +- **`last_purchase_date`:** la última compra del cliente hasta
+          + ese día, nunca una posterior.                                
+      111 +                                                              
+      112 +**Lo que todavía no cuadra:** la tabla antigua `daily_sales` s
+          +igue sin convertir a euros y                                  
+      113 +cuenta algunos pedidos más de una vez. Su suma no coincidirá c
+          +on la de esta tabla hasta que                                 
+      114 +se corrija, que es otro trabajo (`docs/analysis.md`). Tampoco 
+          +comprobamos que lo cobrado                                    
+      115 +coincida con el importe del pedido: K-10151 tiene 64,00 € cobr
+          +ados y un importe de 58,50 €, y                               
+      116 +contamos los 58,50 €.                                         
+      117 +                                                              
+      118 +Evidencia: `uv run python tasks.py acceptance` → `50 PASS, 0 F
+          +AIL` (comprueba estas cifras y                                
+      119 +estos seis rechazos sobre los datos reales).                  
+      120 +                                                              
+      121 +Equipo de datos                                               
+
+● Ahora docs/report.md: las filas de la sección 3 (una por cada vuelta real de
+  esta sesión) y la sección 4.
+
+● Update(docs\report.md)
+  ⎿  Added 4 lines
+      74  | 7 | 2 | Escribir la especificación | spec.md (R1–R18, E1–E19,
+           S1–S8, A1–A20) y reference\_calc.py | Contrasté las 21 filas d
+          e E1–E17, los totales y los rechazos con mi propio cálculo: coi
+          nciden | Mi mensaje llegó cortado y el agente no asumió mis dec
+          isiones; pedí guardar el script en el repositorio; el orden de 
+          prioridad del documento no coincidía con el script | Commit 1f2
+          c8a1 con la especificación aprobada | — |
+      75  | 8 | 2 | Caso límite refund\_id vacío | El agente detectó que 
+          un refund\_id vacío daría conflicting\_duplicate | Revisé el ca
+          so sintético | Decidí corregirlo antes del plan | Commit 82f1ca
+          0; además corrigió que un null se convertía en "None" | — |
+      76  | 9 | 2 | Plan de implementación | Borrador con T0–T12, riesgos
+           y T10 (comprobar que los tests fallan con el código roto) | Re
+          visión crítica del borrador | P1: acceptance se rompería con la
+           entrega 2; P2: faltaba la fase 3 y los tags; P3: comportamient
+          os fuera de la especificación; P4: contrato innecesario; P5: fa
+          ltaba exportar la sesión y registrar las vueltas | Commit 09ddd
+          1b con la sección "Revisión del plan" | Fase 3 |
+      77 +| 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+         +acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+         +cial con `reference_calc.py`, S1–S8) y 21 tests en `tests/test_
+         +customer_metrics.py` | Salida de `tasks.py test` y `acceptance`
+         + | Rojo esperado: `20 failed, 4 passed`; acceptance `19 PASS, 1
+         +1 FAIL` (E1–E18 pasan sobre la salida de `reference_calc.py`, l
+         +o que valida el oráculo). Los S1–S6 decían "código 0", que era 
+         +confuso: el fallo era que faltaba `rejected.csv` | Mensaje acla
+         +rado ("código 0, rejected.csv no existe"); commit d3fc9d7 | — |
+      78 +| 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+         +evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+         +or`; reglas en `kivora/customer_metrics.py` | Comprobaciones de
+         + T2 y una sonda de las funciones sobre `output/warehouse.db` | 
+         +El permiso `deny` `PowerShell(Remove-Item -Recurse*)` de la fas
+         +e 3 bloqueó un comando que borraba una carpeta temporal | Repet
+         +ido sin borrar (en el scratchpad). `daily_sales.csv` igual byte
+         + a byte; `raw_refunds` = 32; S7 manual → código 2; la sonda da 
+         +156 ventas, 18490.74, 1264.19 y los 6 rechazos de E18. Test `19
+         + failed, 5 passed`, acceptance `20 PASS, 10 FAIL`; commit 4df50
+         +db | — |                                                       
+      79 +| 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+         +ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+         +outputs.py`, `pipeline.run` y `check.py` | Salida de `test`, `a
+         +cceptance`, `run` y `check`; búsqueda de ids de la muestra en `
+         +kivora/` y `sql/` | Ninguno: verde en la primera ejecución | `2
+         +4 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids de la muestra
+         + fuera de `acceptance.py`; commit 0031c6c | — |                
+      80 +| 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+         +| Tres defectos introducidos a mano, uno cada vez, y deshechos 
+         +sin commit | Salida de `test` y `acceptance` con cada defecto |
+         + Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): so
+         +lo los tests unitarios. Ver la tabla de T10 en la sección 4 | C
+         +ada defecto hace fallar al menos un test; tras deshacerlos, `gi
+         +t diff` vacío, `24 passed` y `50 PASS` | — |                   
+      81  
+      82  \## 4. Trazabilidad
+      83  
+
+● Update(docs\report.md)
+  ⎿  Added 34 lines, removed 1 line
+       81  
+       82  \## 4. Trazabilidad
+       83  
+       84 +Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con
+          + datos reales y S\* sintéticos, comprobados por `uv run python
+          + tasks.py acceptance`) → test de `tests/test_customer_metrics.
+          +py` → código. Resultado actual: `uv run python tasks.py test` 
+          +→ `24 passed`; `uv run python tasks.py acceptance` → `50 PASS,
+          + 0 FAIL`.                                                     
+       85  
+       86 +| R | Qué exige | Escenarios | Tests (`tests/test_customer_met
+          +rics.py`) | Código |                                          
+       87 +|---|---|---|---|---|                                         
+       88 +| R1 | Leer todo `--inbox`; `refunds.json` ausente o `[]` = na
+          +da; JSON roto → error que nombra el fichero | S7, S8 | `test_m
+          +alformed_refunds_json_raises_input_error` (:357), `test_day_wi
+          +thout_refunds_or_empty_list` (:368) | `kivora/ingest.py:39`, `
+          +kivora/__main__.py:30` |                                      
+       89 +| R2 | Última versión; desempate por carpeta y fila | E1, E2, 
+          +E3, E4 | `test_dedup_exact_copies_and_versions` (:116), `test_
+          +latest_version_tie_breaks_by_folder_then_row` (:234) | `kivora
+          +/customer_metrics.py:87` |                                    
+       90 +| R3 | Validación del pedido (`invalid_record`, `unknown_curre
+          +ncy`) | S1, S2, S3 | `test_null_and_missing_values` (:139), `t
+          +est_currency_mismatch_and_unknown_currency` (:297), `test_non_
+          +positive_amounts` (:314) | `kivora/customer_metrics.py:115` | 
+       91 +| R4 | Venta = no cancelada y ≥ 1 pago `captured`; cuenta una 
+          +vez | E3, E15, E16 | `test_dedup_exact_copies_and_versions` (:
+          +116), `test_no_duplicates_after_joins` (:215), `test_refund_of
+          +_order_that_is_not_a_sale` (:279) | `kivora/customer_metrics.p
+          +y:81`, `:115` |                                               
+       92 +| R5 | EUR con `Decimal`, medio hacia arriba, por registro | E
+          +2, E15, E17 | `test_net_amount` (:196) | `kivora/customer_metr
+          +ics.py:51` |                                                  
+       93 +| R6 | Día en `Europe/Madrid` con horario de verano | E12, E13
+          + | `test_madrid_date_with_daylight_saving` (:334, verano e inv
+          +ierno), `test_multiple_refunds_same_order` (:170) | `kivora/cu
+          +stomer_metrics.py:38` |                                       
+       94 +| R7 | País actual normalizado; `UNKNOWN`; la venta no se pier
+          +de | E5, S4 | `test_null_and_missing_values` (:139), `test_no_
+          +duplicates_after_joins` (:215) | `kivora/customer_metrics.py:7
+          +3` |                                                          
+       95 +| R8 | `refund_id` vacío → `invalid_record` por aparición; val
+          +idación de la devolución | S1, S2, S3 | `test_null_and_missing
+          +_values` (:139), `test_non_positive_amounts` (:314), `test_cur
+          +rency_mismatch_and_unknown_currency` (:297) | `kivora/customer
+          +_metrics.py:146`, `:185` |                                    
+       96 +| R9 | Duplicados por `refund_id`: copia → `duplicate_refund`;
+          + distinto → `conflicting_duplicate` | E10, S5 | `test_duplicat
+          +e_and_conflicting_refunds` (:263) | `kivora/customer_metrics.p
+          +y:146` |                                                      
+       97 +| R10 | `order_not_found`, `order_not_sale`, `currency_mismatc
+          +h` | E8, E11, S6 | `test_refund_without_order` (:186), `test_r
+          +efund_of_order_that_is_not_a_sale` (:279), `test_currency_mism
+          +atch_and_unknown_currency` (:297) | `kivora/customer_metrics.p
+          +y:185` |                                                      
+       98 +| R11 | Límite por pedido en su moneda; se rechaza entera la q
+          +ue lo supera | E6, E7, E9 | `test_partial_refund` (:159), `tes
+          +t_multiple_refunds_same_order` (:170), `test_refund_exceeds_or
+          +der` (:249) | `kivora/customer_metrics.py:218` |              
+       99 +| R12 | Una fila en `rejected.csv` por registro, con el primer
+          + motivo | E3, E8–E11, E16, E18 | todos los que comprueban `rej
+          +ected(out)` (p. ej. :116, :186, :263, :279) | `kivora/customer
+          +_metrics.py:115`, `:146`, `:185`, `:218` |                    
+      100 +| R13 | Fila por (día, cliente) con venta o devolución; filas 
+          +solo con devoluciones | E13, E14 | `test_multiple_refunds_same
+          +_order` (:170), `test_last_purchase_date_does_not_look_ahead` 
+          +(:344) | `kivora/customer_metrics.py:246` |                   
+      101 +| R14 | Columnas de §3.1; neto puede ser negativo; `last_purch
+          +ase_date` sin mirar al futuro | E6, E13, E14 | `test_net_amoun
+          +t` (:196), `test_last_purchase_date_does_not_look_ahead` (:344
+          +) | `kivora/customer_metrics.py:246` |                        
+      102 +| R15 | Los tres controles, en orden | E18 (controles), E2 y E
+          +15 (control 3), E9 (control 2) | `test_net_amount` (:196), `te
+          +st_refund_exceeds_order` (:249), `test_no_duplicates_after_joi
+          +ns` (:215), `test_outputs_are_deterministic` (:395) | `kivora/
+          +customer_metrics.py:275` |                                    
+      103 +| R16 | Formato y determinismo byte a byte | E19 | `test_outpu
+          +ts_are_deterministic` (:395) | `kivora/outputs.py:36` |       
+      104 +| R17 | Código 0 con entrada legible aunque haya rechazos | S1
+          +–S4 (conjunto), ejecución | — (los tests llaman a `run()`, no 
+          +miran el código de salida) | `kivora/__main__.py:30` |        
+      105 +| R18 | Interfaz y salidas antiguas sin cambios | E19 | los 4 
+          +de `tests/test_pipeline.py`, sin modificar | `kivora/__main__.
+          +py`, `sql/` sin cambios |                                     
+      106  
+       86 -\_(fase 4)\_                                                  
+      107 +Los siete tests mínimos de `assignment.md` §4 son los de las l
+          +íneas :116, :139, :159, :170, :186, :196 y :215.              
+      108  
+      109 +**Tests frente a código roto (T10).** Cada defecto se introduj
+          +o a mano en `kivora/customer_metrics.py`, se ejecutaron `tasks
+          +.py test` y `tasks.py acceptance`, y se deshizo sin commit (`g
+          +it diff` vacío al terminar):                                  
+      110  
+      111 +| Defecto | Test que falla | `acceptance` |                   
+      112 +|---|---|---|                                                 
+      113 +| Sin desempate de última versión (solo `updated_at`, gana la 
+          +primera fila) | `test_latest_version_tie_breaks_by_folder_then
+          +_row` (1 failed, 23 passed) | 50 PASS: la muestra no trae dos 
+          +versiones distintas con el mismo `updated_at` |               
+      114 +| UTC+2 fijo en vez de `Europe/Madrid` | `test_madrid_date_wit
+          +h_daylight_saving[2026-12-01T22:30:00Z-2026-12-01]` (1 failed,
+          + 23 passed) | 50 PASS: en septiembre Madrid está en UTC+2 |   
+      115 +| Sin deduplicar `refund_id` | `test_duplicate_and_conflicting
+          +_refunds` (1 failed, 23 passed) | 4 FAIL: E10 (R-1006 contado 
+          +dos veces, 24.00), E18 (devuelto 1276.19), diferencial y S5 | 
+      116  
+      117 +Conclusión: `acceptance` no basta como única red de seguridad.
+          + Dos de los tres defectos solo los detectan los tests sintétic
+          +os, porque los datos de la muestra no ejercitan esos casos.   
+      118 +                                                              
+      119 +**Test existente que fija un defecto (T11).** `tests/test_pipe
+          +line.py:66-75` (`test_gross_matches_source_total`) suma `total
+          +_amount` sin convertir divisas ni usar la última versión, así 
+          +que contradice el contrato de `daily_sales` (`docs/analysis.md
+          +` §3). No se ha adaptado: `daily_sales` está fuera de alcance 
+          +(D5) y el test sigue pasando sin cambios (`git diff --stat tes
+          +ts/test_pipeline.py` vacío). Habrá que reescribirlo cuando se 
+          +corrija `daily_sales`.                                        
+      120 +                                                              
+      121 +                                                              
+      122 +                                                              
+      123  \## 5. Cambio de esquema
+      124  
+      125  
+
+● Corrijo un dato que escribí mal en la fila 10: no son 21 tests sino 20 (19
+  funciones, una de ellas con dos casos). Después, verificación final:
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      74  | 7 | 2 | Escribir la especificación | spec.md (R1–R18, E1–E19,
+           S1–S8, A1–A20) y reference\_calc.py | Contrasté las 21 filas d
+          e E1–E17, los totales y los rechazos con mi propio cálculo: coi
+          nciden | Mi mensaje llegó cortado y el agente no asumió mis dec
+          isiones; pedí guardar el script en el repositorio; el orden de 
+          prioridad del documento no coincidía con el script | Commit 1f2
+          c8a1 con la especificación aprobada | — |
+      75  | 8 | 2 | Caso límite refund\_id vacío | El agente detectó que 
+          un refund\_id vacío daría conflicting\_duplicate | Revisé el ca
+          so sintético | Decidí corregirlo antes del plan | Commit 82f1ca
+          0; además corrigió que un null se convertía en "None" | — |
+      76  | 9 | 2 | Plan de implementación | Borrador con T0–T12, riesgos
+           y T10 (comprobar que los tests fallan con el código roto) | Re
+          visión crítica del borrador | P1: acceptance se rompería con la
+           entrega 2; P2: faltaba la fase 3 y los tags; P3: comportamient
+          os fuera de la especificación; P4: contrato innecesario; P5: fa
+          ltaba exportar la sesión y registrar las vueltas | Commit 09ddd
+          1b con la sección "Revisión del plan" | Fase 3 |
+      77 -| 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+         -acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+         -cial con `reference_calc.py`, S1–S8) y 21 tests en `tests/test_
+         -customer_metrics.py` | Salida de `tasks.py test` y `acceptance`
+         - | Rojo esperado: `20 failed, 4 passed`; acceptance `19 PASS, 1
+         -1 FAIL` (E1–E18 pasan sobre la salida de `reference_calc.py`, l
+         -o que valida el oráculo). Los S1–S6 decían "código 0", que era 
+         -confuso: el fallo era que faltaba `rejected.csv` | Mensaje acla
+         -rado ("código 0, rejected.csv no existe"); commit d3fc9d7 | — |
+      77 +| 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+         +acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+         +cial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, 
+         +una con dos casos) en `tests/test_customer_metrics.py` | Salida
+         + de `tasks.py test` y `acceptance` | Rojo esperado: `20 failed,
+         + 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pasan sobre l
+         +a salida de `reference_calc.py`, lo que valida el oráculo). Los
+         + S1–S6 decían "código 0", que era confuso: el fallo era que fal
+         +taba `rejected.csv` | Mensaje aclarado ("código 0, rejected.csv
+         + no existe"); commit d3fc9d7 | — |                             
+      78  | 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+          evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+          or`; reglas en `kivora/customer_metrics.py` | Comprobaciones de
+           T2 y una sonda de las funciones sobre `output/warehouse.db` | 
+          El permiso `deny` `PowerShell(Remove-Item -Recurse*)` de la fas
+          e 3 bloqueó un comando que borraba una carpeta temporal | Repet
+          ido sin borrar (en el scratchpad). `daily_sales.csv` igual byte
+           a byte; `raw_refunds` = 32; S7 manual → código 2; la sonda da 
+          156 ventas, 18490.74, 1264.19 y los 6 rechazos de E18. Test `19
+           failed, 5 passed`, acceptance `20 PASS, 10 FAIL`; commit 4df50
+          db | — |
+      79  | 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+          ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+          outputs.py`, `pipeline.run` y `check.py` | Salida de `test`, `a
+          cceptance`, `run` y `check`; búsqueda de ids de la muestra en `
+          kivora/` y `sql/` | Ninguno: verde en la primera ejecución | `2
+          4 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids de la muestra
+           fuera de `acceptance.py`; commit 0031c6c | — |
+      80  | 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+          | Tres defectos introducidos a mano, uno cada vez, y deshechos 
+          sin commit | Salida de `test` y `acceptance` con cada defecto |
+           Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): so
+          lo los tests unitarios. Ver la tabla de T10 en la sección 4 | C
+          ada defecto hace fallar al menos un test; tras deshacerlos, `gi
+          t diff` vacío, `24 passed` y `50 PASS` | — |
+
+  Made 1 scratchpad edit +16, ran 2 shell commands (ctrl+o to expand)
+
+● KIV-101 está implementado y cumple la especificación. Al terminar, test da 24 
+  passed, check da OK y acceptance da 50 PASS, 0 FAIL. Hay 4 commits nuevos, sin
+  push ni tag.
+
+  ┌─────────┬─────────────────────────┬─────────────────────────────────────┐
+  │ Commit  │         Bloque          │        Estado tras el commit        │
+  ├─────────┼─────────────────────────┼─────────────────────────────────────┤
+  │ d3fc9d7 │ 1 · T1+T3: acceptance y │ Rojo esperado: test 20 failed, 4    │
+  │         │  tests                  │ passed; acceptance 19 PASS, 11 FAIL │
+  ├─────────┼─────────────────────────┼─────────────────────────────────────┤
+  │         │ 2 · T2+T4–T6: carga,    │ Test 19 failed, 5 passed;           │
+  │ 4df50db │ pedidos, EUR, Madrid,   │ acceptance 20 PASS, 10 FAIL. El     │
+  │         │ devoluciones            │ cálculo nuevo aún no estaba         │
+  │         │                         │ conectado al pipeline               │
+  ├─────────┼─────────────────────────┼─────────────────────────────────────┤
+  │         │ 3 · T7–T9: métricas,    │ Verde a la primera: 24 passed, 50   │
+  │ 0031c6c │ salidas, controles,     │ PASS                                │
+  │         │ check                   │                                     │
+  ├─────────┼─────────────────────────┼─────────────────────────────────────┤
+  │         │                         │ README, CLAUDE.md, sources.md,      │
+  │ 4d185b0 │ Documentación           │ respuesta del ticket y secciones 3  │
+  │         │                         │ y 4 de report.md                    │
+  └─────────┴─────────────────────────┴─────────────────────────────────────┘
+
+  Rojo del bloque 1. Todos los tests nuevos fallaban porque aún no existían los
+  ficheros de salida, y el de InputError porque esa clase aún no existía. Los 19
+  PASS de acceptance eran E1–E18 ejecutados sobre reference_calc.py, que sirven
+  para comprobar el propio oráculo, más la ejecución en sí.
+
+  Comprobaciones del bloque 2:
+  - daily_sales.csv y top_customers.csv salen iguales byte a byte que antes.
+  - raw_refunds tiene 32 filas.
+  - Con un refunds.json roto, el pipeline sale con código 2 y nombra el fichero.
+  - Las funciones nuevas, probadas sobre los datos reales, ya daban las cifras
+    de E18.
+
+  Bloque 4, los tres defectos (cada uno deshecho antes del siguiente; al final
+  git diff sale vacío):
+
+  Defecto: Sin desempate de la última versión
+  Test que falla: test_latest_version_tie_breaks_by_folder_then_row
+  acceptance: 50/50, no lo detecta
+  ────────────────────────────────────────
+  Defecto: UTC+2 fijo
+  Test que falla: test_madrid_date_with_daylight_saving[...12-01...] (el caso de
+
+    invierno)
+  acceptance: 50/50, no lo detecta
+  ────────────────────────────────────────
+  Defecto: Sin deduplicar refund_id
+  Test que falla: test_duplicate_and_conflicting_refunds
+  acceptance: 4 FAIL: E10, E18, diferencial y S5
+
+  Lo más importante de este bloque es que acceptance no detecta los dos primeros
+  defectos. La muestra no trae empates de updated_at y en septiembre Madrid
+  está en UTC+2, así que solo los cazan los tests sintéticos. Lo dejé escrito en
+  la sección 4 de la memoria.
+
+  Cosas que conviene que sepas:
+  - Cambios fuera de lo que me listaste, pero que pedía el plan:
+    - __main__.py ahora captura InputError y devuelve 2; las opciones siguen
+      igual.
+    - reference_calc.py lee los CSV con utf-8-sig, y su --summary da las mismas
+      cifras.
+    - En raw_refunds añadí una columna _raw que el plan no tenía. Sirve para
+      comparar el contenido de las devoluciones duplicadas (R9).
+  - Un test que no pedía el plan: el del desempate de la última versión. Sin él,
+    ningún test detectaba el defecto 1.
+  - Un comando denegado: el deny PowerShell(Remove-Item -Recurse*) de la fase 3
+    me bloqueó un comando que borraba una carpeta temporal. Lo repetí sin borrar
+    nada y lo registré como vuelta 11.
+  - Columna "Mi revisión" de la sección 3: en las filas 10–13 puse la salida de
+    test y acceptance, que es el feedback que hubo. Tu revisión personal tienes
+    que añadirla tú.
+  - Lo que falta para cerrar la fase 4:
+    - Exportar la sesión con /export a docs/sessions/.
+    - Revisar el export antes de subirlo: contiene tus rutas locales, que
+      incluyen tu nombre.
+    - El push, que tienes que hacerlo tú.
+    - El tag phase-4.
+
+✻ Churned for 12m 27s · done 20:52
+
+> Dos ajustes en docs/report.md: (1) comprueba que la fila 10 de la sección 3   
+  no esté duplicada y deja solo la versión correcta (20 tests); (2) en la       
+  columna "Mi revisión" de las filas 10 a 13 pon: "Revisé con mi tutor el rojo  
+  del bloque 1, el verde del bloque 3 y la tabla de defectos de T10; aprobé     
+  cada commit". Commit con mensaje en español y tu Co-Authored-By. Sin push ni  
+  tag.                                                                          
+
+  Searched for 1 pattern, ran 1 shell command (ctrl+o to expand)
+
+● La fila 10 no está duplicada: hay una sola, ya con "20 tests (19 funciones,
+  una con dos casos)", y no queda ningún "21 tests". Así que el ajuste (1) no
+  necesita cambios. Hago el (2):
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      74  | 7 | 2 | Escribir la especificación | spec.md (R1–R18, E1–E19,
+           S1–S8, A1–A20) y reference\_calc.py | Contrasté las 21 filas d
+          e E1–E17, los totales y los rechazos con mi propio cálculo: coi
+          nciden | Mi mensaje llegó cortado y el agente no asumió mis dec
+          isiones; pedí guardar el script en el repositorio; el orden de 
+          prioridad del documento no coincidía con el script | Commit 1f2
+          c8a1 con la especificación aprobada | — |
+      75  | 8 | 2 | Caso límite refund\_id vacío | El agente detectó que 
+          un refund\_id vacío daría conflicting\_duplicate | Revisé el ca
+          so sintético | Decidí corregirlo antes del plan | Commit 82f1ca
+          0; además corrigió que un null se convertía en "None" | — |
+      76  | 9 | 2 | Plan de implementación | Borrador con T0–T12, riesgos
+           y T10 (comprobar que los tests fallan con el código roto) | Re
+          visión crítica del borrador | P1: acceptance se rompería con la
+           entrega 2; P2: faltaba la fase 3 y los tags; P3: comportamient
+          os fuera de la especificación; P4: contrato innecesario; P5: fa
+          ltaba exportar la sesión y registrar las vueltas | Commit 09ddd
+          1b con la sección "Revisión del plan" | Fase 3 |
+      77 -| 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+         -acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+         -cial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, 
+         -una con dos casos) en `tests/test_customer_metrics.py` | Salida
+         - de `tasks.py test` y `acceptance` | Rojo esperado: `20 failed,
+         - 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pasan sobre l
+         -a salida de `reference_calc.py`, lo que valida el oráculo). Los
+         - S1–S6 decían "código 0", que era confuso: el fallo era que fal
+         -taba `rejected.csv` | Mensaje aclarado ("código 0, rejected.csv
+         - no existe"); commit d3fc9d7 | — |                             
+      77 +| 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+         +acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+         +cial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, 
+         +una con dos casos) en `tests/test_customer_metrics.py` | Revisé
+         + con mi tutor el rojo del bloque 1, el verde del bloque 3 y la 
+         +tabla de defectos de T10; aprobé cada commit | Rojo esperado: `
+         +20 failed, 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pas
+         +an sobre la salida de `reference_calc.py`, lo que valida el orá
+         +culo). Los S1–S6 decían "código 0", que era confuso: el fallo e
+         +ra que faltaba `rejected.csv` | Mensaje aclarado ("código 0, re
+         +jected.csv no existe"); commit d3fc9d7 | — |                   
+      78  | 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+          evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+          or`; reglas en `kivora/customer_metrics.py` | Comprobaciones de
+           T2 y una sonda de las funciones sobre `output/warehouse.db` | 
+          El permiso `deny` `PowerShell(Remove-Item -Recurse*)` de la fas
+          e 3 bloqueó un comando que borraba una carpeta temporal | Repet
+          ido sin borrar (en el scratchpad). `daily_sales.csv` igual byte
+           a byte; `raw_refunds` = 32; S7 manual → código 2; la sonda da 
+          156 ventas, 18490.74, 1264.19 y los 6 rechazos de E18. Test `19
+           failed, 5 passed`, acceptance `20 PASS, 10 FAIL`; commit 4df50
+          db | — |
+      79  | 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+          ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+          outputs.py`, `pipeline.run` y `check.py` | Salida de `test`, `a
+          cceptance`, `run` y `check`; búsqueda de ids de la muestra en `
+          kivora/` y `sql/` | Ninguno: verde en la primera ejecución | `2
+          4 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids de la muestra
+           fuera de `acceptance.py`; commit 0031c6c | — |
+      80  | 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+          | Tres defectos introducidos a mano, uno cada vez, y deshechos 
+          sin commit | Salida de `test` y `acceptance` con cada defecto |
+           Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): so
+          lo los tests unitarios. Ver la tabla de T10 en la sección 4 | C
+          ada defecto hace fallar al menos un test; tras deshacerlos, `gi
+          t diff` vacío, `24 passed` y `50 PASS` | — |
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      75  | 8 | 2 | Caso límite refund\_id vacío | El agente detectó que 
+          un refund\_id vacío daría conflicting\_duplicate | Revisé el ca
+          so sintético | Decidí corregirlo antes del plan | Commit 82f1ca
+          0; además corrigió que un null se convertía en "None" | — |
+      76  | 9 | 2 | Plan de implementación | Borrador con T0–T12, riesgos
+           y T10 (comprobar que los tests fallan con el código roto) | Re
+          visión crítica del borrador | P1: acceptance se rompería con la
+           entrega 2; P2: faltaba la fase 3 y los tags; P3: comportamient
+          os fuera de la especificación; P4: contrato innecesario; P5: fa
+          ltaba exportar la sesión y registrar las vueltas | Commit 09ddd
+          1b con la sección "Revisión del plan" | Fase 3 |
+      77  | 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+          acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+          cial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, 
+          una con dos casos) en `tests/test_customer_metrics.py` | Revisé
+           con mi tutor el rojo del bloque 1, el verde del bloque 3 y la 
+          tabla de defectos de T10; aprobé cada commit | Rojo esperado: `
+          20 failed, 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pas
+          an sobre la salida de `reference_calc.py`, lo que valida el orá
+          culo). Los S1–S6 decían "código 0", que era confuso: el fallo e
+          ra que faltaba `rejected.csv` | Mensaje aclarado ("código 0, re
+          jected.csv no existe"); commit d3fc9d7 | — |
+      78 -| 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+         -evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+         -or`; reglas en `kivora/customer_metrics.py` | Comprobaciones de
+         - T2 y una sonda de las funciones sobre `output/warehouse.db` | 
+         -El permiso `deny` `PowerShell(Remove-Item -Recurse*)` de la fas
+         -e 3 bloqueó un comando que borraba una carpeta temporal | Repet
+         -ido sin borrar (en el scratchpad). `daily_sales.csv` igual byte
+         - a byte; `raw_refunds` = 32; S7 manual → código 2; la sonda da 
+         -156 ventas, 18490.74, 1264.19 y los 6 rechazos de E18. Test `19
+         - failed, 5 passed`, acceptance `20 PASS, 10 FAIL`; commit 4df50
+         -db | — |                                                       
+      78 +| 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+         +evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+         +or`; reglas en `kivora/customer_metrics.py` | Revisé con mi tut
+         +or el rojo del bloque 1, el verde del bloque 3 y la tabla de de
+         +fectos de T10; aprobé cada commit | El permiso `deny` `PowerShe
+         +ll(Remove-Item -Recurse*)` de la fase 3 bloqueó un comando que 
+         +borraba una carpeta temporal | Repetido sin borrar (en el scrat
+         +chpad). `daily_sales.csv` igual byte a byte; `raw_refunds` = 32
+         +; S7 manual → código 2; la sonda da 156 ventas, 18490.74, 1264.
+         +19 y los 6 rechazos de E18. Test `19 failed, 5 passed`, accepta
+         +nce `20 PASS, 10 FAIL`; commit 4df50db | — |                   
+      79  | 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+          ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+          outputs.py`, `pipeline.run` y `check.py` | Salida de `test`, `a
+          cceptance`, `run` y `check`; búsqueda de ids de la muestra en `
+          kivora/` y `sql/` | Ninguno: verde en la primera ejecución | `2
+          4 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids de la muestra
+           fuera de `acceptance.py`; commit 0031c6c | — |
+      80  | 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+          | Tres defectos introducidos a mano, uno cada vez, y deshechos 
+          sin commit | Salida de `test` y `acceptance` con cada defecto |
+           Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): so
+          lo los tests unitarios. Ver la tabla de T10 en la sección 4 | C
+          ada defecto hace fallar al menos un test; tras deshacerlos, `gi
+          t diff` vacío, `24 passed` y `50 PASS` | — |
+      81  
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      76  | 9 | 2 | Plan de implementación | Borrador con T0–T12, riesgos
+           y T10 (comprobar que los tests fallan con el código roto) | Re
+          visión crítica del borrador | P1: acceptance se rompería con la
+           entrega 2; P2: faltaba la fase 3 y los tags; P3: comportamient
+          os fuera de la especificación; P4: contrato innecesario; P5: fa
+          ltaba exportar la sesión y registrar las vueltas | Commit 09ddd
+          1b con la sección "Revisión del plan" | Fase 3 |
+      77  | 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+          acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+          cial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, 
+          una con dos casos) en `tests/test_customer_metrics.py` | Revisé
+           con mi tutor el rojo del bloque 1, el verde del bloque 3 y la 
+          tabla de defectos de T10; aprobé cada commit | Rojo esperado: `
+          20 failed, 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pas
+          an sobre la salida de `reference_calc.py`, lo que valida el orá
+          culo). Los S1–S6 decían "código 0", que era confuso: el fallo e
+          ra que faltaba `rejected.csv` | Mensaje aclarado ("código 0, re
+          jected.csv no existe"); commit d3fc9d7 | — |
+      78  | 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+          evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+          or`; reglas en `kivora/customer_metrics.py` | Revisé con mi tut
+          or el rojo del bloque 1, el verde del bloque 3 y la tabla de de
+          fectos de T10; aprobé cada commit | El permiso `deny` `PowerShe
+          ll(Remove-Item -Recurse*)` de la fase 3 bloqueó un comando que 
+          borraba una carpeta temporal | Repetido sin borrar (en el scrat
+          chpad). `daily_sales.csv` igual byte a byte; `raw_refunds` = 32
+          ; S7 manual → código 2; la sonda da 156 ventas, 18490.74, 1264.
+          19 y los 6 rechazos de E18. Test `19 failed, 5 passed`, accepta
+          nce `20 PASS, 10 FAIL`; commit 4df50db | — |
+      79 -| 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+         -ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+         -outputs.py`, `pipeline.run` y `check.py` | Salida de `test`, `a
+         -cceptance`, `run` y `check`; búsqueda de ids de la muestra en `
+         -kivora/` y `sql/` | Ninguno: verde en la primera ejecución | `2
+         -4 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids de la muestra
+         - fuera de `acceptance.py`; commit 0031c6c | — |                
+      79 +| 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+         +ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+         +outputs.py`, `pipeline.run` y `check.py` | Revisé con mi tutor 
+         +el rojo del bloque 1, el verde del bloque 3 y la tabla de defec
+         +tos de T10; aprobé cada commit | Ninguno: verde en la primera e
+         +jecución | `24 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids 
+         +de la muestra fuera de `acceptance.py`; commit 0031c6c | — |   
+      80  | 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+          | Tres defectos introducidos a mano, uno cada vez, y deshechos 
+          sin commit | Salida de `test` y `acceptance` con cada defecto |
+           Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): so
+          lo los tests unitarios. Ver la tabla de T10 en la sección 4 | C
+          ada defecto hace fallar al menos un test; tras deshacerlos, `gi
+          t diff` vacío, `24 passed` y `50 PASS` | — |
+      81  
+      82  \## 4. Trazabilidad
+
+● Update(docs\report.md)
+  ⎿  Added 1 line, removed 1 line
+      77  | 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/
+          acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferen
+          cial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, 
+          una con dos casos) en `tests/test_customer_metrics.py` | Revisé
+           con mi tutor el rojo del bloque 1, el verde del bloque 3 y la 
+          tabla de defectos de T10; aprobé cada commit | Rojo esperado: `
+          20 failed, 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pas
+          an sobre la salida de `reference_calc.py`, lo que valida el orá
+          culo). Los S1–S6 decían "código 0", que era confuso: el fallo e
+          ra que faltaba `rejected.csv` | Mensaje aclarado ("código 0, re
+          jected.csv no existe"); commit d3fc9d7 | — |
+      78  | 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y d
+          evoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputErr
+          or`; reglas en `kivora/customer_metrics.py` | Revisé con mi tut
+          or el rojo del bloque 1, el verde del bloque 3 y la tabla de de
+          fectos de T10; aprobé cada commit | El permiso `deny` `PowerShe
+          ll(Remove-Item -Recurse*)` de la fase 3 bloqueó un comando que 
+          borraba una carpeta temporal | Repetido sin borrar (en el scrat
+          chpad). `daily_sales.csv` igual byte a byte; `raw_refunds` = 32
+          ; S7 manual → código 2; la sonda da 156 ventas, 18490.74, 1264.
+          19 y los 6 rechazos de E18. Test `19 failed, 5 passed`, accepta
+          nce `20 PASS, 10 FAIL`; commit 4df50db | — |
+      79  | 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `che
+          ck` e integración | `build_metrics`, `quality_checks`, `kivora/
+          outputs.py`, `pipeline.run` y `check.py` | Revisé con mi tutor 
+          el rojo del bloque 1, el verde del bloque 3 y la tabla de defec
+          tos de T10; aprobé cada commit | Ninguno: verde en la primera e
+          jecución | `24 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids 
+          de la muestra fuera de `acceptance.py`; commit 0031c6c | — |
+      80 -| 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+         -| Tres defectos introducidos a mano, uno cada vez, y deshechos 
+         -sin commit | Salida de `test` y `acceptance` con cada defecto |
+         - Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): so
+         -lo los tests unitarios. Ver la tabla de T10 en la sección 4 | C
+         -ada defecto hace fallar al menos un test; tras deshacerlos, `gi
+         -t diff` vacío, `24 passed` y `50 PASS` | — |                   
+      80 +| 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? 
+         +| Tres defectos introducidos a mano, uno cada vez, y deshechos 
+         +sin commit | Revisé con mi tutor el rojo del bloque 1, el verde
+         + del bloque 3 y la tabla de defectos de T10; aprobé cada commit
+         + | Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): 
+         +solo los tests unitarios. Ver la tabla de T10 en la sección 4 |
+         + Cada defecto hace fallar al menos un test; tras deshacerlos, `
+         +git diff` vacío, `24 passed` y `50 PASS` | — |                 
+      81  
+      82  \## 4. Trazabilidad
+      83  
+
+  Made 1 scratchpad edit +9, ran 2 shell commands (ctrl+o to expand)
+
+● Hecho, en el commit 51d92c0 (sin push ni tag).
+
+  1. Fila 10: no estaba duplicada. Solo hay una y ya decía "20 tests (19
+     funciones, una con dos casos)", así que no la he tocado.
+  2. "Mi revisión": en las filas 10 a 13 he puesto tu texto exacto. Las cuatro
+     filas siguen teniendo sus 8 columnas.
+
+  Tu texto ha sustituido lo que había antes en esa columna, que era qué salida
+  se revisó en cada vuelta (test, acceptance, la sonda…). Esa información sigue
+  en la columna "Cambio y resultado comprobado", así que no se pierde nada.
+
+  Para cerrar la fase 4 te queda exportar la sesión a docs/sessions/ y revisarla
+  antes de subirla, hacer el push y crear el tag phase-4.
+
+✻ Cooked for 41s · done 20:55
