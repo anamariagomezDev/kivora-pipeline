@@ -17,16 +17,21 @@ genera dos:
   Dirección Comercial. Su contrato está en
   [`docs/data-contracts/daily_sales.md`](docs/data-contracts/daily_sales.md).
 - `top_customers`: los diez clientes que más han comprado.
+- `daily_customer_metrics`: compras, devoluciones y neto por cliente y día, en EUR, para
+  Finanzas ([KIV-101](docs/tickets/KIV-101.md)). Va acompañada de `rejected.csv` (registros
+  no usados y su motivo) y `quality_report.json` (controles de calidad). Su definición está en
+  [`docs/specs/KIV-101/spec.md`](docs/specs/KIV-101/spec.md) §3.
 
 El equipo trabaja con agentes de código. La herramienta principal es
 **Claude Code**.
 
 ## Estado actual
 
-El pipeline funciona con los datos que hay en `data/inbox/` (del 1 al 3 de
-septiembre de 2026). Los tickets abiertos están en `docs/tickets/`:
+El pipeline funciona con los datos que hay en `data/inbox/` (del 1 al 7 de
+septiembre de 2026). Los tickets están en `docs/tickets/`:
 
 - [KIV-100](docs/tickets/KIV-100.md): incorporación al pipeline.
+- [KIV-101](docs/tickets/KIV-101.md): devoluciones y métricas diarias por cliente.
 
 La tienda envía nuevas entregas de datos con su ticket. Para simularlo:
 
@@ -62,6 +67,7 @@ el entorno virtual (`.venv\Scripts\Activate.ps1` en PowerShell,
 | `python tasks.py run` | Ejecuta el pipeline sobre `data/inbox/` y escribe `output/` |
 | `python tasks.py test` | Ejecuta los tests |
 | `python tasks.py check` | Comprobaciones básicas sobre `output/` |
+| `python tasks.py acceptance` | Escenarios de aceptación de KIV-101 (spec §5–§6) sobre una copia temporal de los días 09-01..09-07; código 0 solo si pasan todos |
 | `python tasks.py deliver N` | Recibe la entrega `N` de la tienda |
 | `python tasks.py reset` | Borra `output/` |
 
@@ -84,7 +90,10 @@ kivora-pipeline/
 │   ├── __main__.py         punto de entrada (python -m kivora)
 │   ├── ingest.py           carga las fuentes en SQLite sin limpiarlas
 │   ├── pipeline.py         orquesta la carga, el SQL y la exportación
-│   └── check.py            comprobaciones básicas de output/
+│   ├── customer_metrics.py reglas de KIV-101 (ventas, devoluciones, métricas, controles)
+│   ├── outputs.py          escribe daily_customer_metrics, rejected y quality_report
+│   ├── check.py            comprobaciones básicas de output/
+│   └── acceptance.py       oráculo de KIV-101 (python tasks.py acceptance)
 ├── sql/                    transformaciones en SQL (SQLite)
 ├── tests/                  tests (pytest)
 ├── data/

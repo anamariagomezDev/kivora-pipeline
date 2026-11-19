@@ -49,6 +49,30 @@ Trae las altas y las modificaciones del día.
 
 Un pedido puede tener más de un pago.
 
+## `refunds.json`
+
+Desde el 2026-09-04. Una lista JSON; cada elemento es una devolución. Los días sin
+devoluciones no traen el fichero (ticket `docs/tickets/KIV-101.md`).
+
+| Campo | Descripción |
+| --- | --- |
+| `refund_id` | Identificador de la devolución |
+| `order_id` | Pedido al que corresponde |
+| `refunded_at` | Momento de la devolución (UTC, ISO 8601 con `Z`) |
+| `amount` | Importe devuelto (número), en la moneda del pedido |
+| `currency` | Moneda (ISO 4217) |
+
+Cómo lo trata el pipeline (`docs/specs/KIV-101/spec.md` R1, R8–R11):
+
+- Fichero ausente o `[]`: cero devoluciones ese día. Si no es JSON válido, el pipeline se
+  detiene con código 2 y un mensaje que nombra el fichero (`kivora/ingest.py:39`,
+  `kivora/__main__.py:30`).
+- Los importes se leen como decimales exactos (`parse_float=Decimal`), nunca como `float`.
+- Puede llegar la misma devolución en dos días: la copia idéntica se descarta como
+  `duplicate_refund`; si el contenido difiere, todas sus apariciones se rechazan como
+  `conflicting_duplicate`.
+- Cada devolución no usada va a `rejected.csv` con su motivo.
+
 ## `data/reference/fx_rates.csv`
 
 Tabla fija de tipos de cambio a euros.

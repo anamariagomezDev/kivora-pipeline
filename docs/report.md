@@ -74,12 +74,49 @@ Archivos: `.claude/settings.json` (permisos y registro del hook, compartido con 
 | 7 | 2 | Escribir la especificación | spec.md (R1–R18, E1–E19, S1–S8, A1–A20) y reference\_calc.py | Contrasté las 21 filas de E1–E17, los totales y los rechazos con mi propio cálculo: coinciden | Mi mensaje llegó cortado y el agente no asumió mis decisiones; pedí guardar el script en el repositorio; el orden de prioridad del documento no coincidía con el script | Commit 1f2c8a1 con la especificación aprobada | — |
 | 8 | 2 | Caso límite refund\_id vacío | El agente detectó que un refund\_id vacío daría conflicting\_duplicate | Revisé el caso sintético | Decidí corregirlo antes del plan | Commit 82f1ca0; además corrigió que un null se convertía en "None" | — |
 | 9 | 2 | Plan de implementación | Borrador con T0–T12, riesgos y T10 (comprobar que los tests fallan con el código roto) | Revisión crítica del borrador | P1: acceptance se rompería con la entrega 2; P2: faltaba la fase 3 y los tags; P3: comportamientos fuera de la especificación; P4: contrato innecesario; P5: faltaba exportar la sesión y registrar las vueltas | Commit 09ddd1b con la sección "Revisión del plan" | Fase 3 |
+| 10 | 4 | Bloque 1 (T1+T3): oráculo y tests en rojo | `kivora/acceptance.py` (copia temporal de 09-01..09-07, E1–E19, diferencial con `reference_calc.py`, S1–S8) y 20 tests (19 funciones, una con dos casos) en `tests/test_customer_metrics.py` | Salida de `tasks.py test` y `acceptance` | Rojo esperado: `20 failed, 4 passed`; acceptance `19 PASS, 11 FAIL` (E1–E18 pasan sobre la salida de `reference_calc.py`, lo que valida el oráculo). Los S1–S6 decían "código 0", que era confuso: el fallo era que faltaba `rejected.csv` | Mensaje aclarado ("código 0, rejected.csv no existe"); commit d3fc9d7 | — |
+| 11 | 4 | Bloque 2 (T2+T4–T6): carga, pedidos, EUR, Madrid y devoluciones | `ingest.py` con `raw_refunds`, `_pos` e `InputError`; reglas en `kivora/customer_metrics.py` | Comprobaciones de T2 y una sonda de las funciones sobre `output/warehouse.db` | El permiso `deny` `PowerShell(Remove-Item -Recurse*)` de la fase 3 bloqueó un comando que borraba una carpeta temporal | Repetido sin borrar (en el scratchpad). `daily_sales.csv` igual byte a byte; `raw_refunds` = 32; S7 manual → código 2; la sonda da 156 ventas, 18490.74, 1264.19 y los 6 rechazos de E18. Test `19 failed, 5 passed`, acceptance `20 PASS, 10 FAIL`; commit 4df50db | — |
+| 12 | 4 | Bloque 3 (T7–T9): métricas, salidas, controles, `check` e integración | `build_metrics`, `quality_checks`, `kivora/outputs.py`, `pipeline.run` y `check.py` | Salida de `test`, `acceptance`, `run` y `check`; búsqueda de ids de la muestra en `kivora/` y `sql/` | Ninguno: verde en la primera ejecución | `24 passed`; `50 PASS, 0 FAIL`; `check` OK; sin ids de la muestra fuera de `acceptance.py`; commit 0031c6c | — |
+| 13 | 4 | Bloque 4 (T10): ¿detectan los tests el código roto? | Tres defectos introducidos a mano, uno cada vez, y deshechos sin commit | Salida de `test` y `acceptance` con cada defecto | Los defectos 1 y 2 **no** los detecta `acceptance` (50/50): solo los tests unitarios. Ver la tabla de T10 en la sección 4 | Cada defecto hace fallar al menos un test; tras deshacerlos, `git diff` vacío, `24 passed` y `50 PASS` | — |
 
 \## 4. Trazabilidad
 
+Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con datos reales y S\* sintéticos, comprobados por `uv run python tasks.py acceptance`) → test de `tests/test_customer_metrics.py` → código. Resultado actual: `uv run python tasks.py test` → `24 passed`; `uv run python tasks.py acceptance` → `50 PASS, 0 FAIL`.
 
+| R | Qué exige | Escenarios | Tests (`tests/test_customer_metrics.py`) | Código |
+|---|---|---|---|---|
+| R1 | Leer todo `--inbox`; `refunds.json` ausente o `[]` = nada; JSON roto → error que nombra el fichero | S7, S8 | `test_malformed_refunds_json_raises_input_error` (:357), `test_day_without_refunds_or_empty_list` (:368) | `kivora/ingest.py:39`, `kivora/__main__.py:30` |
+| R2 | Última versión; desempate por carpeta y fila | E1, E2, E3, E4 | `test_dedup_exact_copies_and_versions` (:116), `test_latest_version_tie_breaks_by_folder_then_row` (:234) | `kivora/customer_metrics.py:87` |
+| R3 | Validación del pedido (`invalid_record`, `unknown_currency`) | S1, S2, S3 | `test_null_and_missing_values` (:139), `test_currency_mismatch_and_unknown_currency` (:297), `test_non_positive_amounts` (:314) | `kivora/customer_metrics.py:115` |
+| R4 | Venta = no cancelada y ≥ 1 pago `captured`; cuenta una vez | E3, E15, E16 | `test_dedup_exact_copies_and_versions` (:116), `test_no_duplicates_after_joins` (:215), `test_refund_of_order_that_is_not_a_sale` (:279) | `kivora/customer_metrics.py:81`, `:115` |
+| R5 | EUR con `Decimal`, medio hacia arriba, por registro | E2, E15, E17 | `test_net_amount` (:196) | `kivora/customer_metrics.py:51` |
+| R6 | Día en `Europe/Madrid` con horario de verano | E12, E13 | `test_madrid_date_with_daylight_saving` (:334, verano e invierno), `test_multiple_refunds_same_order` (:170) | `kivora/customer_metrics.py:38` |
+| R7 | País actual normalizado; `UNKNOWN`; la venta no se pierde | E5, S4 | `test_null_and_missing_values` (:139), `test_no_duplicates_after_joins` (:215) | `kivora/customer_metrics.py:73` |
+| R8 | `refund_id` vacío → `invalid_record` por aparición; validación de la devolución | S1, S2, S3 | `test_null_and_missing_values` (:139), `test_non_positive_amounts` (:314), `test_currency_mismatch_and_unknown_currency` (:297) | `kivora/customer_metrics.py:146`, `:185` |
+| R9 | Duplicados por `refund_id`: copia → `duplicate_refund`; distinto → `conflicting_duplicate` | E10, S5 | `test_duplicate_and_conflicting_refunds` (:263) | `kivora/customer_metrics.py:146` |
+| R10 | `order_not_found`, `order_not_sale`, `currency_mismatch` | E8, E11, S6 | `test_refund_without_order` (:186), `test_refund_of_order_that_is_not_a_sale` (:279), `test_currency_mismatch_and_unknown_currency` (:297) | `kivora/customer_metrics.py:185` |
+| R11 | Límite por pedido en su moneda; se rechaza entera la que lo supera | E6, E7, E9 | `test_partial_refund` (:159), `test_multiple_refunds_same_order` (:170), `test_refund_exceeds_order` (:249) | `kivora/customer_metrics.py:218` |
+| R12 | Una fila en `rejected.csv` por registro, con el primer motivo | E3, E8–E11, E16, E18 | todos los que comprueban `rejected(out)` (p. ej. :116, :186, :263, :279) | `kivora/customer_metrics.py:115`, `:146`, `:185`, `:218` |
+| R13 | Fila por (día, cliente) con venta o devolución; filas solo con devoluciones | E13, E14 | `test_multiple_refunds_same_order` (:170), `test_last_purchase_date_does_not_look_ahead` (:344) | `kivora/customer_metrics.py:246` |
+| R14 | Columnas de §3.1; neto puede ser negativo; `last_purchase_date` sin mirar al futuro | E6, E13, E14 | `test_net_amount` (:196), `test_last_purchase_date_does_not_look_ahead` (:344) | `kivora/customer_metrics.py:246` |
+| R15 | Los tres controles, en orden | E18 (controles), E2 y E15 (control 3), E9 (control 2) | `test_net_amount` (:196), `test_refund_exceeds_order` (:249), `test_no_duplicates_after_joins` (:215), `test_outputs_are_deterministic` (:395) | `kivora/customer_metrics.py:275` |
+| R16 | Formato y determinismo byte a byte | E19 | `test_outputs_are_deterministic` (:395) | `kivora/outputs.py:36` |
+| R17 | Código 0 con entrada legible aunque haya rechazos | S1–S4 (conjunto), ejecución | — (los tests llaman a `run()`, no miran el código de salida) | `kivora/__main__.py:30` |
+| R18 | Interfaz y salidas antiguas sin cambios | E19 | los 4 de `tests/test_pipeline.py`, sin modificar | `kivora/__main__.py`, `sql/` sin cambios |
 
-\_(fase 4)\_
+Los siete tests mínimos de `assignment.md` §4 son los de las líneas :116, :139, :159, :170, :186, :196 y :215.
+
+**Tests frente a código roto (T10).** Cada defecto se introdujo a mano en `kivora/customer_metrics.py`, se ejecutaron `tasks.py test` y `tasks.py acceptance`, y se deshizo sin commit (`git diff` vacío al terminar):
+
+| Defecto | Test que falla | `acceptance` |
+|---|---|---|
+| Sin desempate de última versión (solo `updated_at`, gana la primera fila) | `test_latest_version_tie_breaks_by_folder_then_row` (1 failed, 23 passed) | 50 PASS: la muestra no trae dos versiones distintas con el mismo `updated_at` |
+| UTC+2 fijo en vez de `Europe/Madrid` | `test_madrid_date_with_daylight_saving[2026-12-01T22:30:00Z-2026-12-01]` (1 failed, 23 passed) | 50 PASS: en septiembre Madrid está en UTC+2 |
+| Sin deduplicar `refund_id` | `test_duplicate_and_conflicting_refunds` (1 failed, 23 passed) | 4 FAIL: E10 (R-1006 contado dos veces, 24.00), E18 (devuelto 1276.19), diferencial y S5 |
+
+Conclusión: `acceptance` no basta como única red de seguridad. Dos de los tres defectos solo los detectan los tests sintéticos, porque los datos de la muestra no ejercitan esos casos.
+
+**Test existente que fija un defecto (T11).** `tests/test_pipeline.py:66-75` (`test_gross_matches_source_total`) suma `total_amount` sin convertir divisas ni usar la última versión, así que contradice el contrato de `daily_sales` (`docs/analysis.md` §3). No se ha adaptado: `daily_sales` está fuera de alcance (D5) y el test sigue pasando sin cambios (`git diff --stat tests/test_pipeline.py` vacío). Habrá que reescribirlo cuando se corrija `daily_sales`.
 
 
 
