@@ -1,6 +1,8 @@
 """Load the raw sources into SQLite, as text, without cleaning anything."""
 
 import csv
+import json
+from decimal import Decimal
 from pathlib import Path
 
 SOURCES = {
@@ -9,6 +11,13 @@ SOURCES = {
     "customers": ["customer_id", "name", "country", "signup_date"],
     "payments": ["payment_id", "order_id", "paid_at", "method", "status", "amount"],
 }
+REFUND_FIELDS = ["refund_id", "order_id", "refunded_at", "amount", "currency"]
+# `_raw`: the whole JSON object, canonical, to compare duplicates by content (R9).
+REFUND_COLUMNS = REFUND_FIELDS + ["_raw"]
+
+
+class InputError(Exception):
+    """An input file that cannot be read (spec R1, A19). The message names the file."""
 
 
 def _create(conn, table, columns):
@@ -16,27 +25,64 @@ def _create(conn, table, columns):
     conn.execute(f"CREATE TABLE {table} ({', '.join(c + ' TEXT' for c in columns)})")
 
 
+def _as_text(value):
+    """JSON value -> TEXT, keeping decimals exactly as written (no float)."""
+    if value is None or isinstance(value, str):
+        return value
+    if isinstance(value, bool):
+        return json.dumps(value)
+    if isinstance(value, (int, Decimal)):
+        return str(value)
+    return json.dumps(value, sort_keys=True, default=str, ensure_ascii=False)
+
+
+def read_refunds(path):
+    """Rows of refunds.json: missing file or [] -> no rows; invalid JSON -> InputError."""
+    path = Path(path)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"), parse_float=Decimal)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise InputError(f"{path}: no es JSON válido ({exc})") from exc
+    if not isinstance(data, list):
+        raise InputError(f"{path}: se esperaba una lista de devoluciones")
+    rows = []
+    for pos, item in enumerate(data):
+        if not isinstance(item, dict):
+            raise InputError(f"{path}: el elemento {pos} no es un objeto")
+        raw = json.dumps(item, sort_keys=True, default=str, ensure_ascii=False)
+        rows.append([_as_text(item.get(f)) for f in REFUND_FIELDS] + [raw])
+    return rows
+
+
 def load_inbox(conn, inbox):
-    """One raw_<source> table per source, with the day folder in `_day`."""
+    """One raw_<source> table per source, with the day folder in `_day` and the
+    position of the row (or JSON element) in its file in `_pos`."""
     for name, columns in SOURCES.items():
-        _create(conn, f"raw_{name}", columns + ["_day"])
+        _create(conn, f"raw_{name}", columns + ["_day", "_pos"])
+    _create(conn, "raw_refunds", REFUND_COLUMNS + ["_day", "_pos"])
     days = sorted(p for p in Path(inbox).iterdir() if p.is_dir())
     for day in days:
         for name, columns in SOURCES.items():
             path = day / f"{name}.csv"
             if not path.exists():
                 continue
-            with open(path, encoding="utf-8", newline="") as fh:
-                rows = [[row[c] for c in columns] + [day.name] for row in csv.DictReader(fh)]
-            placeholders = ", ".join("?" for _ in range(len(columns) + 1))
+            with open(path, encoding="utf-8-sig", newline="") as fh:
+                rows = [[row[c] for c in columns] + [day.name, pos]
+                        for pos, row in enumerate(csv.DictReader(fh))]
+            placeholders = ", ".join("?" for _ in range(len(columns) + 2))
             conn.executemany(f"INSERT INTO raw_{name} VALUES ({placeholders})", rows)
+        refunds = [row + [day.name, pos] for pos, row in enumerate(read_refunds(day / "refunds.json"))]
+        placeholders = ", ".join("?" for _ in range(len(REFUND_COLUMNS) + 2))
+        conn.executemany(f"INSERT INTO raw_refunds VALUES ({placeholders})", refunds)
     conn.commit()
     return [d.name for d in days]
 
 
 def load_reference(conn, reference):
     _create(conn, "ref_fx_rates", ["currency", "rate_to_eur"])
-    with open(Path(reference) / "fx_rates.csv", encoding="utf-8", newline="") as fh:
+    with open(Path(reference) / "fx_rates.csv", encoding="utf-8-sig", newline="") as fh:
         rows = [[row["currency"], row["rate_to_eur"]] for row in csv.DictReader(fh)]
     conn.executemany("INSERT INTO ref_fx_rates VALUES (?, ?)", rows)
     conn.commit()

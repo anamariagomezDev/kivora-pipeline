@@ -10,6 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from kivora.ingest import InputError
 from kivora.pipeline import run
 
 
@@ -24,7 +25,12 @@ def main(argv=None):
                         help="carpeta de salida (por defecto: output)")
     args = parser.parse_args(argv)
     sys.stdout.reconfigure(encoding="utf-8")
-    run(args.inbox, args.reference, args.out)
+    try:
+        run(args.inbox, args.reference, args.out)
+    except InputError as exc:  # unreadable input (spec R1): stop, naming the file
+        sys.stderr.reconfigure(encoding="utf-8")
+        print(f"Error de entrada: {exc}", file=sys.stderr)
+        return 2
     return 0
 
 
