@@ -1,8 +1,8 @@
-\# Memoria · Kivora pipeline
+# Memoria · Kivora pipeline
 
 
 
-\## 1. Decisiones con el agente
+## 1. Decisiones con el agente
 
 
 
@@ -18,7 +18,7 @@
 | 8 | 2 | D5: corregir daily\_sales queda fuera de alcance | Yo | Corregir ahora / documentar | KIV-101 no lo pide y el plazo es corto |
 | 9 | 2 | Tres controles de calidad en lugar de seis | Yo, al revisar la propuesta | 3 / 6 | Los dos del enunciado más la unicidad; el resto no suma |
 
-\## 2. Configuración del agente
+## 2. Configuración del agente
 
 
 
@@ -59,7 +59,7 @@ Archivos: `.claude/settings.json` (permisos y registro del hook, compartido con 
 
 
 
-\## 3. Ciclo de iteración
+## 3. Ciclo de iteración
 
 
 
@@ -85,7 +85,7 @@ Archivos: `.claude/settings.json` (permisos y registro del hook, compartido con 
 | 18 | 5 | Implementación y oráculo | Normalización en `ingest.py`; R8 y R9 en `customer_metrics.py`; `reference_calc.py` adaptado sin importar `kivora/` | Pedí implementación y oráculo en el mismo commit (el agente había propuesto commits separados) | El agente ajustó K7 en la spec y el plan | Commit `ca68d77`: `32 passed`; `68 PASS, 0 FAIL` (los 50 de KIV-101 siguen); `check` OK; `run` 186 filas y 8 rechazos | — |
 | 19 | 5 | Documentación de KIV-102 | Respuesta del ticket a Finanzas, secciones 3–5 de esta memoria, `sources.md`, nota en la spec de KIV-101 y `CLAUDE.md` | Aprobé el commit en la petición de permiso | — | Commit de documentación; `test` y `acceptance` en verde | Tag `phase-5` (lo pongo yo) |
 
-\## 4. Trazabilidad
+## 4. Trazabilidad
 
 Requisito de `docs/specs/KIV-101/spec.md` → escenario (E\* con datos reales y S\* sintéticos, comprobados por `uv run python tasks.py acceptance`) → test de `tests/test_customer_metrics.py` → código. Resultado al cerrar KIV-101: `24 passed` y `50 PASS, 0 FAIL`. Con KIV-102 (tabla al final de esta sección): `uv run python tasks.py test` → `32 passed`; `uv run python tasks.py acceptance` → `68 PASS, 0 FAIL`. Las filas R8 y R9 de esta tabla las modifica KIV-102.
 
@@ -138,7 +138,7 @@ Conclusión: `acceptance` no basta como única red de seguridad. Dos de los tres
 
 
 
-\## 5. Cambio de esquema
+## 5. Cambio de esquema
 
 **Qué cambió.** Desde el 2026-09-08 `refunds.json` trae `refund_amount` en lugar de `amount` y un campo nuevo, `reason` (texto o `null`). Los ficheros antiguos no se reenvían: en `data/inbox/` hay ficheros de los dos formatos (`docs/tickets/KIV-102.md`).
 
@@ -184,17 +184,17 @@ Con los datos reales, en `daily_customer_metrics`:
 
 
 
-\## 6. Revisión
+## 6. Revisión
 
 
 
-\_(fase 6)\_
+_(fase 6)_
 
 
 
-\## 7. Qué haría distinto
+## 7. Qué haría distinto
 
 
 
-\_(fase 6)\_
+_(fase 6)_
 
