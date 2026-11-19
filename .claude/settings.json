@@ -27,6 +27,11 @@
       "Bash(git reset --hard*)",
       "Bash(git rebase*)",
       "Bash(rm -rf*)",
+      "PowerShell(git push*)",
+      "PowerShell(git reset --hard*)",
+      "PowerShell(git rebase*)",
+      "PowerShell(rm -rf*)",
+      "PowerShell(Remove-Item -Recurse*)",
       "Read(./.env)"
     ]
   },
